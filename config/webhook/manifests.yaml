@@ -8,48 +8,8 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
-      namespace: system
-      path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-harvestercluster
-  failurePolicy: Fail
-  name: vharvestercluster.v1beta1.kb.io
-  rules:
-  - apiGroups:
-    - infrastructure.cluster.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - harvesterclusters
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
-      path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-harvestermachine
-  failurePolicy: Fail
-  name: vharvestermachine.v1beta1.kb.io
-  rules:
-  - apiGroups:
-    - infrastructure.cluster.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - harvestermachines
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
+      name: caphv-webhook-service
+      namespace: caphv-system
       path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-harvestercluster
   failurePolicy: Fail
   name: vharvestercluster.kb.io
@@ -68,8 +28,28 @@ webhooks:
   - v1
   clientConfig:
     service:
-      name: webhook-service
-      namespace: system
+      name: caphv-webhook-service
+      namespace: caphv-system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-harvestercluster
+  failurePolicy: Fail
+  name: vharvestercluster.v1beta1.kb.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - harvesterclusters
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: caphv-webhook-service
+      namespace: caphv-system
       path: /validate-infrastructure-cluster-x-k8s-io-v1alpha1-harvestermachine
   failurePolicy: Fail
   name: vharvestermachine.kb.io
@@ -78,6 +58,26 @@ webhooks:
     - infrastructure.cluster.x-k8s.io
     apiVersions:
     - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - harvestermachines
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: caphv-webhook-service
+      namespace: caphv-system
+      path: /validate-infrastructure-cluster-x-k8s-io-v1beta1-harvestermachine
+  failurePolicy: Fail
+  name: vharvestermachine.v1beta1.kb.io
+  rules:
+  - apiGroups:
+    - infrastructure.cluster.x-k8s.io
+    apiVersions:
+    - v1beta1
     operations:
     - CREATE
     - UPDATE

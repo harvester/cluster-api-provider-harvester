@@ -162,13 +162,17 @@ func getKubeConfig(ctx context.Context, hvClient lbclient.Interface, saName stri
 		return "", err
 	}
 
-	// Get Endpoint from Service
+	// Get Endpoint from ingress-expose service in kube-system namespace
 	vipSVC, err := hvClient.CoreV1().Services("kube-system").Get(ctx, "ingress-expose", metav1.GetOptions{})
 	if err != nil {
 		return "", errors.Wrap(err, "unable to compute the Harvester Endpoint: problem in getting the ingress-expose service")
 	}
 
-	vipIP := vipSVC.Annotations["kube-vip.io/loadbalancerIPs"]
+	if len(vipSVC.Status.LoadBalancer.Ingress) == 0 {
+		return "", errors.New("unable to compute the Harvester Endpoint: no ip allocated in the ingress-expose service")
+	}
+
+	vipIP := vipSVC.Status.LoadBalancer.Ingress[0].IP
 
 	ok, err := re.MatchString(`\d+\.\d+\.\d+\.\d+`, vipIP)
 	if ok && err == nil {

@@ -4,8 +4,8 @@ metadata:
   labels:
     app.kubernetes.io/name: cluster-api-provider-harvester
     app.kubernetes.io/managed-by: kustomize
-  name: webhook-service
-  namespace: system
+  name: caphv-webhook-service
+  namespace: caphv-system
 spec:
   ports:
   - port: 443

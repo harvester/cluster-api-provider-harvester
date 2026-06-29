@@ -5,8 +5,8 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: cluster-api-provider-harvester
     app.kubernetes.io/managed-by: kustomize
-  name: controller-manager-metrics-service
-  namespace: system
+  name: caphv-controller-manager-metrics-service
+  namespace: caphv-system
 spec:
   ports:
   - name: https

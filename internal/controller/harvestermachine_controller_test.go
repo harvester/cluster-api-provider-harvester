@@ -2895,6 +2895,9 @@ var _ = Describe("buildPVCForVolume with image type", func() {
 			Spec: harvesterv1beta1.VirtualMachineImageSpec{
 				DisplayName: "test-image-display",
 			},
+			Status: harvesterv1beta1.VirtualMachineImageStatus{
+				StorageClassName: "longhorn-image-abc123",
+			},
 		}
 		hvClient := hvfake.NewSimpleClientset(testImage)
 
@@ -2927,6 +2930,9 @@ var _ = Describe("buildPVCForVolume with image type", func() {
 			},
 			Spec: harvesterv1beta1.VirtualMachineImageSpec{
 				DisplayName: "some-other-display-name",
+			},
+			Status: harvesterv1beta1.VirtualMachineImageStatus{
+				StorageClassName: "longhorn-image-xyz789",
 			},
 		}
 		hvClient := hvfake.NewSimpleClientset(testImage)

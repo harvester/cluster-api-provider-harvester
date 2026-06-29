@@ -461,11 +461,8 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 					Status: metav1.ConditionTrue,
 					Reason: infrav1.MachineCreatedCondition,
 				})
-				hvScope.HarvesterMachine.Status.Ready = true
 			}
 		} else {
-			hvScope.HarvesterMachine.Status.Ready = false
-
 			return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
 		}
 	}
@@ -695,7 +692,7 @@ func createVMFromHarvesterMachine(hvScope *Scope) (*kubevirtv1.VirtualMachine, e
 	var err error
 
 	vmLabels := map[string]string{
-		"harvesterhci.io/creator": "harvester",
+		"harvesterhci.io/creator": "docker-machine-driver-harvester",
 	}
 
 	if _, ok := hvScope.HarvesterMachine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
@@ -820,7 +817,7 @@ func buildPVCForVolume(
 			return nil, errors.Wrapf(err, "unable to find VM image %s", vol.ImageName)
 		}
 
-		scName := storageClassForImage(vmImage)
+		scName := vmImage.Status.StorageClassName
 		pvc.Spec.StorageClassName = &scName
 		pvc.Annotations[hvAnnotationImageID] = vmImage.Namespace + "/" + vmImage.Name
 
