@@ -152,7 +152,7 @@ make test
 
 # Certify a different pairing
 CAPHV_VERSION=v0.3.2 \
-CAPHV_COMPONENTS_URL=https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.3.2/infrastructure-components.yaml \
+CAPHV_COMPONENTS_URL=https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.3.2/infrastructure-components.yaml \
 ./run.sh
 ```
 

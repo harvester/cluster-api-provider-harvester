@@ -1,25 +1,20 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: ${NAMESPACE}
----
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster 
 metadata:
   namespace: ${NAMESPACE}
   name: ${CLUSTER_NAME} 
   labels:
-${RANCHER_TURTLES_LABEL}
+    ${RANCHER_TURTLES_LABEL}
     ccm: external
     csi: external
     cni: external
 spec:
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+    apiGroup: controlplane.cluster.x-k8s.io
     kind: RKE2ControlPlane
     name: ${CLUSTER_NAME}-control-plane
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: HarvesterCluster
     name: ${CLUSTER_NAME}-hv
 ---
@@ -50,36 +45,38 @@ metadata:
 data: 
   kubeconfig: ${HARVESTER_KUBECONFIG_B64}
 ---
-apiVersion: controlplane.cluster.x-k8s.io/v1alpha1
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: RKE2ControlPlane
 metadata:
   namespace: ${NAMESPACE}
   name: ${CLUSTER_NAME}-control-plane
 spec:
+  version: ${KUBERNETES_VERSION}+rke2r1
   replicas: ${CONTROL_PLANE_MACHINE_COUNT}
-  agentConfig:
-    version: ${KUBERNETES_VERSION}+rke2r1
+  rolloutStrategy: 
+    type: "RollingUpdate"
   serverConfig:
     cni: calico
     cloudProviderName: external
-  infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
-    kind: HarvesterMachineTemplate
-    name: ${CLUSTER_NAME}-cp-machine
-    namespace: ${NAMESPACE}
+    disableComponents:
+      kubernetesComponents:
+      - cloudController
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: HarvesterMachineTemplate
+        name: ${CLUSTER_NAME}-cp-machine
+
 ---
-apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: RKE2ConfigTemplate
 metadata:
   namespace: ${NAMESPACE}
   name: ${CLUSTER_NAME}-worker
-spec:
-  template:
-    spec:
-      agentConfig:
-        version: ${KUBERNETES_VERSION}+rke2r1
+spec: {}
 ---
-apiVersion: cluster.x-k8s.io/v1beta1
+apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
 metadata:
   namespace: ${NAMESPACE}
@@ -94,16 +91,14 @@ spec:
     spec:
       bootstrap:
         configRef:
-          apiVersion: bootstrap.cluster.x-k8s.io/v1alpha1
+          apiGroup: bootstrap.cluster.x-k8s.io
           kind: RKE2ConfigTemplate
           name: ${CLUSTER_NAME}-worker
-          namespace: ${NAMESPACE}
       clusterName: ${CLUSTER_NAME}
       infrastructureRef:
-        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        apiGroup: infrastructure.cluster.x-k8s.io
         kind: HarvesterMachineTemplate
         name: ${CLUSTER_NAME}-wk-machine
-        namespace: ${NAMESPACE}
       version: ${KUBERNETES_VERSION}+rke2r1
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -114,8 +109,8 @@ metadata:
 spec:
   template: 
     spec:
-      cpu: 1
-      memory: 4Gi
+      cpu: 4
+      memory: 8Gi
       sshUser: ubuntu
       sshKeyPair: ${SSH_KEYPAIR}  
       networks:
@@ -134,7 +129,7 @@ metadata:
 spec:
   template: 
     spec:
-      cpu: 2
+      cpu: 4
       memory: 8Gi
       sshUser: ubuntu
       sshKeyPair: ${SSH_KEYPAIR}  
@@ -146,7 +141,7 @@ spec:
         volumeSize: ${VM_DISK_SIZE}
         bootOrder: 0
 ---
-apiVersion: addons.cluster.x-k8s.io/v1beta1
+apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
 metadata:
   name: crs-harvester-ccm
@@ -160,7 +155,7 @@ spec:
     name: cloud-controller-manager-addon
   strategy: ApplyOnce
 ---
-apiVersion: addons.cluster.x-k8s.io/v1beta1
+apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
 metadata:
   name: crs-harvester-csi
@@ -174,7 +169,7 @@ spec:
     name: harvester-csi-driver-addon
   strategy: ApplyOnce
 ---
-apiVersion: addons.cluster.x-k8s.io/v1beta1
+apiVersion: addons.cluster.x-k8s.io/v1beta2
 kind: ClusterResourceSet
 metadata:
   name: crs-calico-chart-config

@@ -4,5 +4,5 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 images:
 - name: controller
-  newName: ghcr.io/rancher-sandbox/cluster-api-provider-harvester
-  newTag: latest
+  newName: gmehta3/cluster-api-provider-harvester-amd64
+  newTag: dev

@@ -9,13 +9,13 @@ metadata:
     app.kubernetes.io/created-by: cluster-api-provider-harvester
     app.kubernetes.io/part-of: cluster-api-provider-harvester
     app.kubernetes.io/managed-by: kustomize
-  name: system
+  name: caphv-system
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: controller-manager
-  namespace: system
+  name: caphv-controller-manager
+  namespace: caphv-system
   labels:
     control-plane: controller-manager
     app.kubernetes.io/name: deployment

@@ -39,7 +39,7 @@ func SetupHarvesterMachineWebhookWithManager(mgr ctrl.Manager) error {
 }
 
 //nolint:lll
-// +kubebuilder:webhook:path=/validate-infrastructure-cluster-x-k8s-io-v1beta1-harvestermachine,mutating=false,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=harvestermachines,verbs=create;update,versions=v1beta1,name=vharvestermachine.v1beta1.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-infrastructure-cluster-x-k8s-io-v1beta1-harvestermachine,mutating=false,failurePolicy=fail,sideEffects=None,groups=infrastructure.cluster.x-k8s.io,resources=harvestermachines,verbs=create;update,versions=v1beta1,name=vharvestermachine.v1beta1.kb.io,admissionReviewVersions=v1,serviceName=caphv-webhook-service,serviceNamespace=caphv-system
 
 var _ admission.Validator[*HarvesterMachine] = &HarvesterMachineValidator{}
 

@@ -1,13 +1,6 @@
 # Adds namespace to all resources.
 namespace: caphv-system
 
-# Value of this field is prepended to the
-# names of all resources, e.g. a deployment named
-# "wordpress" becomes "alices-wordpress".
-# Note that it should also match with the prefix (text before '-') of the namespace
-# field above.
-namePrefix: caphv-
-
 # Labels to add to all resources and selectors.
 #commonLabels:
 #  someName: someValue
@@ -90,7 +83,7 @@ replacements:
 - source:
     kind: Service
     version: v1
-    name: webhook-service
+    name: caphv-webhook-service
     fieldPath: metadata.namespace
   targets:
   - select:
@@ -107,7 +100,7 @@ replacements:
 - source:
     kind: Service
     version: v1
-    name: webhook-service
+    name: caphv-webhook-service
     fieldPath: metadata.name
   targets:
   - select:
