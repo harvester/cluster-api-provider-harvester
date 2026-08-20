@@ -142,7 +142,7 @@ week. Two operational notes:
   (development happened against a single-node cluster): discovery, publication,
   assignment and affinity are validated end to end, but an actual multi-host
   spread deserves a validation run on real hardware
-  ([#237](https://github.com/rancher-sandbox/cluster-api-provider-harvester/issues/237)
+  ([#237](https://github.com/harvester/cluster-api-provider-harvester/issues/237)
   asked for community feedback).
 - The shipped ClusterClass's load balancer defaults to `ipamType: dhcp`;
   environments without DHCP on the VM network must switch it to `pool`.
@@ -156,4 +156,4 @@ week. Two operational notes:
 - Ideas parked upstream: decoupling IP allocation into a standard CAPI IPAM
   provider; automatic per machine type documentation examples for multi-VLAN
   topologies (a real deployment is described in
-  [#234](https://github.com/rancher-sandbox/cluster-api-provider-harvester/issues/234)).
+  [#234](https://github.com/harvester/cluster-api-provider-harvester/issues/234)).

@@ -37,9 +37,9 @@ import (
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	infrastructurev1alpha1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1alpha1"
-	infrastructurev1beta1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/internal/controller"
+	infrastructurev1alpha1 "github.com/harvester/cluster-api-provider-harvester/api/v1alpha1"
+	infrastructurev1beta1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
+	"github.com/harvester/cluster-api-provider-harvester/internal/controller"
 )
 
 const (

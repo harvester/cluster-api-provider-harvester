@@ -49,10 +49,10 @@ when CAPHV is involved, the feature to use.
 
 The bold rows are the ones the provider had to implement; they were requested
 by users subject to BSI compliance in
-[#234](https://github.com/rancher-sandbox/cluster-api-provider-harvester/issues/234),
-[#237](https://github.com/rancher-sandbox/cluster-api-provider-harvester/issues/237)
+[#234](https://github.com/harvester/cluster-api-provider-harvester/issues/234),
+[#237](https://github.com/harvester/cluster-api-provider-harvester/issues/237)
 and
-[#238](https://github.com/rancher-sandbox/cluster-api-provider-harvester/issues/238),
+[#238](https://github.com/harvester/cluster-api-provider-harvester/issues/238),
 and functionally validated against a real Harvester cluster.
 
 ## CIS Benchmarks

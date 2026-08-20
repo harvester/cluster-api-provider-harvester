@@ -33,7 +33,7 @@ variables:
   # Version pairing under certification: the CAPHV release below is certified against the
   # targeted CAPI core. Override via environment (CI does) to certify other pairings.
   CAPHV_VERSION: "v0.10.1"
-  CAPHV_COMPONENTS_URL: "https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml"
+  CAPHV_COMPONENTS_URL: "https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml"
   CAPI_VERSION: "v1.12.7"
 
   # cluster-api-operator chart (Rancher-independent provider lifecycle manager).

@@ -25,7 +25,7 @@ import (
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
+	"github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
 )
 
 type Clusterv1beta1Interface interface {

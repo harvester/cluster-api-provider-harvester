@@ -22,7 +22,7 @@ import (
 	rest "k8s.io/client-go/rest"
 	testing "k8s.io/client-go/testing"
 
-	v1beta1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/cluster.x-k8s.io/v1beta1"
+	v1beta1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/cluster.x-k8s.io/v1beta1"
 )
 
 type FakeClusterv1beta1 struct {

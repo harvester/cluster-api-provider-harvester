@@ -38,7 +38,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdlatest "k8s.io/client-go/tools/clientcmd/api/latest"
 
-	lbclient "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned"
+	lbclient "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned"
 )
 
 const (

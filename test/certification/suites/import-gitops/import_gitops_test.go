@@ -11,7 +11,7 @@ import (
 	"github.com/rancher/turtles/test/e2e"
 	"github.com/rancher/turtles/test/e2e/specs"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/test/certification/suites"
+	"github.com/harvester/cluster-api-provider-harvester/test/certification/suites"
 )
 
 // The Turtles integration spec: provisions a real cluster on Harvester from the

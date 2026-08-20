@@ -29,7 +29,7 @@ import (
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	scheme "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
+	scheme "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
 )
 
 // ClustersGetter has a method to return a ClusterInterface.

@@ -1,4 +1,4 @@
-module github.com/rancher-sandbox/cluster-api-provider-harvester
+module github.com/harvester/cluster-api-provider-harvester
 
 go 1.26.4
 

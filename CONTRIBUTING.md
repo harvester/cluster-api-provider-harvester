@@ -15,14 +15,14 @@ Thank you for your interest in contributing to CAPHV (Cluster API Provider Harve
 ### Clone and Build
 
 ```bash
-git clone https://github.com/rancher-sandbox/cluster-api-provider-harvester.git
+git clone https://github.com/harvester/cluster-api-provider-harvester.git
 cd cluster-api-provider-harvester
 
 # Build the controller binary
 make build
 
 # Build the container image
-make docker-build IMG=ghcr.io/rancher-sandbox/cluster-api-provider-harvester:dev
+make docker-build IMG=ghcr.io/harvester/cluster-api-provider-harvester:dev
 
 # Build the CLI generator
 go build -o bin/caphv-generate ./cmd/caphv-generate/
