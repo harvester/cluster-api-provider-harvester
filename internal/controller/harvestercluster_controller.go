@@ -60,10 +60,10 @@ import (
 	"sigs.k8s.io/cluster-api/util/paused"
 	"sigs.k8s.io/cluster-api/util/predicates"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
-	caphvmetrics "github.com/rancher-sandbox/cluster-api-provider-harvester/internal/metrics"
-	lbclient "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned"
-	locutil "github.com/rancher-sandbox/cluster-api-provider-harvester/util"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
+	caphvmetrics "github.com/harvester/cluster-api-provider-harvester/internal/metrics"
+	lbclient "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned"
+	locutil "github.com/harvester/cluster-api-provider-harvester/util"
 )
 
 const (

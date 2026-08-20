@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
 )
 
 var (

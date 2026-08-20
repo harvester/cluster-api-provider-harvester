@@ -17,7 +17,7 @@ import (
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
 )
 
 func pausedTestScheme() *runtime.Scheme {

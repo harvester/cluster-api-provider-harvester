@@ -1,4 +1,4 @@
-module github.com/rancher-sandbox/cluster-api-provider-harvester/test/certification
+module github.com/harvester/cluster-api-provider-harvester/test/certification
 
 go 1.25.10
 

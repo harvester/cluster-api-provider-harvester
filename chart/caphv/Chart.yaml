@@ -4,9 +4,9 @@ description: "Cluster API Provider Harvester (CAPHV) - Legacy chart, prefer CAPI
 type: application
 version: 0.2.8
 appVersion: "v0.2.8"
-home: https://github.com/rancher-sandbox/cluster-api-provider-harvester
+home: https://github.com/harvester/cluster-api-provider-harvester
 sources:
-  - https://github.com/rancher-sandbox/cluster-api-provider-harvester
+  - https://github.com/harvester/cluster-api-provider-harvester
 keywords:
   - cluster-api
   - harvester

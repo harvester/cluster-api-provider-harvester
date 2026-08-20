@@ -22,7 +22,7 @@ import (
 
 	kubevirtv1 "kubevirt.io/api/core/v1"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
 )
 
 // =============================================================================

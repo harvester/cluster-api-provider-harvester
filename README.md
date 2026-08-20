@@ -95,7 +95,7 @@ spec:
   type: infrastructure
   version: v0.10.1
   fetchConfig:
-    url: https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
+    url: https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
   configSecret:
     name: caphv-variables
 ```
@@ -112,13 +112,13 @@ See [docs/operations.md](docs/operations.md) for full CAPIProvider deployment, u
 # Without webhooks
 helm install caphv chart/caphv/ \
   -n caphv-system --create-namespace \
-  --set image.repository=ghcr.io/rancher-sandbox/cluster-api-provider-harvester \
+  --set image.repository=ghcr.io/harvester/cluster-api-provider-harvester \
   --set image.tag=v0.10.1
 
 # With webhooks (requires cert-manager)
 helm install caphv chart/caphv/ \
   -n caphv-system --create-namespace \
-  --set image.repository=ghcr.io/rancher-sandbox/cluster-api-provider-harvester \
+  --set image.repository=ghcr.io/harvester/cluster-api-provider-harvester \
   --set image.tag=v0.10.1 \
   --set webhooks.enabled=true \
   --set webhooks.certManager.enabled=true
@@ -128,10 +128,10 @@ helm install caphv chart/caphv/ \
 
 ```bash
 # Build and push the image
-make docker-build docker-push IMG=ghcr.io/rancher-sandbox/cluster-api-provider-harvester:v0.10.1
+make docker-build docker-push IMG=ghcr.io/harvester/cluster-api-provider-harvester:v0.10.1
 
 # Deploy
-make deploy IMG=ghcr.io/rancher-sandbox/cluster-api-provider-harvester:v0.10.1
+make deploy IMG=ghcr.io/harvester/cluster-api-provider-harvester:v0.10.1
 ```
 
 ### Option 4: Manual (standalone manifests)
@@ -454,7 +454,7 @@ Integration tests run against a live Harvester + CAPI cluster:
 make build
 
 # Build container image
-make docker-build IMG=ghcr.io/rancher-sandbox/cluster-api-provider-harvester:v0.10.1
+make docker-build IMG=ghcr.io/harvester/cluster-api-provider-harvester:v0.10.1
 
 # Run unit tests
 make test
@@ -475,8 +475,8 @@ identity.
 Verify the container image:
 
 ```bash
-cosign verify ghcr.io/rancher-sandbox/cluster-api-provider-harvester:v0.10.1 \
-  --certificate-identity-regexp "^https://github.com/rancher-sandbox/cluster-api-provider-harvester" \
+cosign verify ghcr.io/harvester/cluster-api-provider-harvester:v0.10.1 \
+  --certificate-identity-regexp "^https://github.com/harvester/cluster-api-provider-harvester" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
@@ -484,8 +484,8 @@ Verify the SLSA build provenance with the GitHub CLI:
 
 ```bash
 gh attestation verify \
-  oci://ghcr.io/rancher-sandbox/cluster-api-provider-harvester:v0.10.1 \
-  --owner rancher-sandbox
+  oci://ghcr.io/harvester/cluster-api-provider-harvester:v0.10.1 \
+  --owner harvester
 ```
 
 Both checks confirm the image was built from this repository's

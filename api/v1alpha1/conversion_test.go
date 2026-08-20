@@ -10,7 +10,7 @@ import (
 
 	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
 )
 
 // fuzzFuncs pins the deprecated terminal failure fields to their zero value: they are

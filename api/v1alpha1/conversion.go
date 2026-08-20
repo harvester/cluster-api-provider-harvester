@@ -5,7 +5,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
 )
 
 // v1alpha1 is a spoke of the v1beta1 hub. The schemas are identical except for the

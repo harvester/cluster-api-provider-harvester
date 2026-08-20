@@ -37,8 +37,8 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned"
-	hvfake "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/fake"
+	"github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned"
+	hvfake "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/fake"
 )
 
 var yamlString = `apiVersion: v1

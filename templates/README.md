@@ -10,7 +10,7 @@ Creates a cluster using kubeadm bootstrap provider.
 **Usage:**
 ```bash
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/cluster-template-kubeadm.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/cluster-template-kubeadm.yaml \
   CLUSTER_NAME=my-cluster \
   KUBERNETES_VERSION=v1.32.1 \
   HARVESTER_ENDPOINT=https://harvester.example.com \
@@ -30,7 +30,7 @@ Creates a cluster using RKE2 bootstrap provider.
 **Usage:**
 ```bash
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/cluster-template-rke2.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/cluster-template-rke2.yaml \
   CLUSTER_NAME=my-rke2-cluster \
   KUBERNETES_VERSION=v1.32.1+rke2r1 \
   HARVESTER_ENDPOINT=https://harvester.example.com \
@@ -50,7 +50,7 @@ Creates an RKE2 cluster with DHCP-based load balancer configuration.
 **Usage:**
 ```bash
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/cluster-template-rke2-dhcp.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/cluster-template-rke2-dhcp.yaml \
   CLUSTER_NAME=my-rke2-dhcp-cluster \
   KUBERNETES_VERSION=v1.32.1+rke2r1 \
   HARVESTER_ENDPOINT=https://harvester.example.com \
@@ -70,7 +70,7 @@ Creates an RKE2 cluster with cloud provider interface generation.
 **Usage:**
 ```bash
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/cluster-template-rke2-generateCPI.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/cluster-template-rke2-generateCPI.yaml \
   CLUSTER_NAME=my-rke2-cpi-cluster \
   KUBERNETES_VERSION=v1.32.1+rke2r1 \
   HARVESTER_ENDPOINT=https://harvester.example.com \
@@ -91,7 +91,7 @@ Creates a cluster using Talos Linux with Cilium CNI and Harvester cloud provider
 ```bash
 # For DHCP mode:
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/cluster-template-talos.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/cluster-template-talos.yaml \
   CLUSTER_NAME=my-talos-cluster \
   KUBERNETES_VERSION=v1.32.1 \
   TALOS_VERSION=v1.5.0 \
@@ -107,7 +107,7 @@ clusterctl generate yaml \
 
 # For IP pool mode:
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/cluster-template-talos.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/cluster-template-talos.yaml \
   CLUSTER_NAME=my-talos-cluster \
   KUBERNETES_VERSION=v1.32.1 \
   TALOS_VERSION=v1.5.0 \
@@ -140,7 +140,7 @@ Defines a ClusterClass for RKE2 clusters that can be reused.
 **Usage:**
 ```bash
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/clusterclass/rke2/clusterclass-harvester-rke2-example.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/clusterclass/rke2/clusterclass-harvester-rke2-example.yaml \
   CLUSTER_CLASS_NAME=harvester-rke2 \
   > clusterclass.yaml
 
@@ -153,7 +153,7 @@ Creates a cluster using the RKE2 ClusterClass with CPI generation.
 **Usage:**
 ```bash
 clusterctl generate yaml \
-  --from https://github.com/rancher-sandbox/cluster-api-provider-harvester/blob/main/templates/clusterclass/rke2/cluster-template-rke2-clusterclass-generateCPI.yaml \
+  --from https://github.com/harvester/cluster-api-provider-harvester/blob/main/templates/clusterclass/rke2/cluster-template-rke2-clusterclass-generateCPI.yaml \
   CLUSTER_NAME=my-clusterclass-cluster \
   CLUSTER_CLASS_NAME=harvester-rke2 \
   KUBERNETES_VERSION=v1.32.1+rke2r1 \

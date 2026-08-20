@@ -24,7 +24,7 @@ import (
 	v1 "k8s.io/api/networking/v1"
 	rest "k8s.io/client-go/rest"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
+	"github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
 )
 
 type NetworkingV1Interface interface {

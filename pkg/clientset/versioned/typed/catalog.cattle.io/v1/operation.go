@@ -29,7 +29,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 
-	scheme "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
+	scheme "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
 )
 
 // OperationsGetter has a method to return a OperationInterface.

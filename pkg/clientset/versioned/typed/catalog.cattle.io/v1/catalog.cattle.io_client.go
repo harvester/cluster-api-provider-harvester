@@ -25,7 +25,7 @@ import (
 
 	rest "k8s.io/client-go/rest"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
+	"github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/scheme"
 )
 
 type CatalogV1Interface interface {

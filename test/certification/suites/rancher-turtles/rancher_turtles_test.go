@@ -16,7 +16,7 @@ import (
 
 	turtlesv1 "github.com/rancher/turtles/api/v1alpha1"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/test/certification/suites"
+	"github.com/harvester/cluster-api-provider-harvester/test/certification/suites"
 )
 
 // This suite certifies the CAPHV release under the FULL targeted Rancher + Turtles stack:

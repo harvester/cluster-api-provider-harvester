@@ -7,5 +7,5 @@ spec:
   template:
     spec:
       containers:
-        - image: ghcr.io/rancher-sandbox/cluster-api-provider-harvester:v0.3.0
+        - image: gmehta3/cluster-api-provider-harvester-amd64:dev
           name: manager

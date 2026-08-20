@@ -27,8 +27,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
-	hvfake "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/fake"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
+	hvfake "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/fake"
 )
 
 // =============================================================================

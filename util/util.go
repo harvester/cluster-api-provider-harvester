@@ -35,8 +35,8 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	infrav1 "github.com/rancher-sandbox/cluster-api-provider-harvester/api/v1beta1"
-	hvclientset "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned"
+	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
+	hvclientset "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned"
 )
 
 const (

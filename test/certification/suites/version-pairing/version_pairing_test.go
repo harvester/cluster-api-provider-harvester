@@ -12,7 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	operatorv1 "sigs.k8s.io/cluster-api-operator/api/v1alpha2"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/test/certification/suites"
+	"github.com/harvester/cluster-api-provider-harvester/test/certification/suites"
 )
 
 // This suite certifies the *version pairing*: that the CAPHV release under test installs

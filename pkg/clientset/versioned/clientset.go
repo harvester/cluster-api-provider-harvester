@@ -30,17 +30,17 @@ import (
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
 
-	catalogv1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/catalog.cattle.io/v1"
-	clusterv1beta1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/cluster.x-k8s.io/v1beta1"
-	harvesterhciv1beta1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/harvesterhci.io/v1beta1"
-	k8scnicncfiov1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/k8s.cni.cncf.io/v1"
-	kubevirtv1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/kubevirt.io/v1"
-	longhornv1beta2 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/longhorn.io/v1beta2"
-	monitoringv1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/monitoring.coreos.com/v1"
-	networkingv1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/networking.k8s.io/v1"
-	snapshotv1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/snapshot.storage.k8s.io/v1"
-	storagev1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/storage.k8s.io/v1"
-	upgradev1 "github.com/rancher-sandbox/cluster-api-provider-harvester/pkg/clientset/versioned/typed/upgrade.cattle.io/v1"
+	catalogv1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/catalog.cattle.io/v1"
+	clusterv1beta1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/cluster.x-k8s.io/v1beta1"
+	harvesterhciv1beta1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/harvesterhci.io/v1beta1"
+	k8scnicncfiov1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/k8s.cni.cncf.io/v1"
+	kubevirtv1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/kubevirt.io/v1"
+	longhornv1beta2 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/longhorn.io/v1beta2"
+	monitoringv1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/monitoring.coreos.com/v1"
+	networkingv1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/networking.k8s.io/v1"
+	snapshotv1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/snapshot.storage.k8s.io/v1"
+	storagev1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/storage.k8s.io/v1"
+	upgradev1 "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned/typed/upgrade.cattle.io/v1"
 )
 
 type Interface interface {

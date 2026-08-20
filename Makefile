@@ -29,8 +29,8 @@ endif
 TAG ?= dev
 ARCH ?= $(shell go env GOARCH)
 ALL_ARCH = amd64 arm arm64 ppc64le s390x
-REGISTRY ?= ghcr.io
-ORG ?= rancher-sandbox
+REGISTRY ?= docker.io
+ORG ?= harvester
 IMAGE_NAME ?= cluster-api-provider-harvester
 # Image URL to use all building/pushing image targets
 IMG ?= $(REGISTRY)/$(ORG)/$(IMAGE_NAME)
@@ -130,7 +130,7 @@ test: manifests generate fmt vet envtest ## Run tests.
 ##@ Build
 .PHONY: manager
 manager: ## Build the harvester manager binary into the ./bin folder
-	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/manager github.com/rancher-sandbox/cluster-api-provider-harvester
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/manager github.com/harvester/cluster-api-provider-harvester
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
@@ -278,7 +278,7 @@ release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Build the manifests to publish
 .PHONY: release-notes
 release-notes: $(RELEASE_DIR) $(GH)
 	if [ -n "${PRE_RELEASE}" ]; then \
-	echo ":rotating_light: This is a RELEASE CANDIDATE. Use it only for testing purposes. If you find any bugs, file an [issue](https://github.com/rancher-sandbox/cluster-api-provider-harvester/issues/new)." > $(RELEASE_DIR)/CHANGELOG.md; \
+	echo ":rotating_light: This is a RELEASE CANDIDATE. Use it only for testing purposes. If you find any bugs, file an [issue](https://github.com/harvester/cluster-api-provider-harvester/issues/new)." > $(RELEASE_DIR)/CHANGELOG.md; \
 	else \
 	$(GH) api repos/$(ORG)/$(GH_REPO_NAME)/releases/generate-notes -F tag_name=$(RELEASE_TAG) -F previous_tag_name=$(PREVIOUS_TAG) --jq '.body' > $(RELEASE_DIR)/CHANGELOG.md; \
 	fi

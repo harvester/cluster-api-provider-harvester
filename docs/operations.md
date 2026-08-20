@@ -38,7 +38,7 @@ spec:
   type: infrastructure
   version: v0.10.1
   fetchConfig:
-    url: https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
+    url: https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
   configSecret:
     name: caphv-variables
 ```
@@ -99,7 +99,7 @@ spec:
   version: v0.10.1
   enableAutomaticUpdate: true
   fetchConfig:
-    url: https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/latest/download/infrastructure-components.yaml
+    url: https://github.com/harvester/cluster-api-provider-harvester/releases/latest/download/infrastructure-components.yaml
   configSecret:
     name: caphv-variables
 ```
@@ -116,7 +116,7 @@ kubectl patch capiprovider harvester -n caphv-system --type merge -p '{
   "spec": {
     "version": "v0.10.1",
     "fetchConfig": {
-      "url": "https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml"
+      "url": "https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml"
     }
   }
 }'
@@ -140,7 +140,7 @@ kubectl wait --for=condition=Ready capiprovider/harvester -n caphv-system --time
 ```bash
 kubectl get deploy caphv-controller-manager -n caphv-system \
   -o jsonpath='{.spec.template.spec.containers[0].image}'
-# Expected: ghcr.io/rancher-sandbox/cluster-api-provider-harvester:v0.10.1
+# Expected: ghcr.io/harvester/cluster-api-provider-harvester:v0.10.1
 ```
 
 3. **Patch to new version** (manual upgrade test):
@@ -199,7 +199,7 @@ config:
 # ~/.cluster-api/clusterctl.yaml
 providers:
   - name: harvester
-    url: https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
+    url: https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
     type: InfrastructureProvider
 ```
 
@@ -259,7 +259,7 @@ for c in bootstrap-components control-plane-components; do
 done
 
 # 4. CAPHV (no placeholders to render)
-kubectl apply -f https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
+kubectl apply -f https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml
 ```
 
 > Without the `render` step, the RKE2 controllers crash-loop on the literal
@@ -333,7 +333,7 @@ kubectl get crd | grep harvester
 If CRDs were removed, re-apply them before proceeding:
 
 ```bash
-curl -sL https://github.com/rancher-sandbox/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml | kubectl apply -f - --server-side --field-manager=crd-restore --prune=false
+curl -sL https://github.com/harvester/cluster-api-provider-harvester/releases/download/v0.10.1/infrastructure-components.yaml | kubectl apply -f - --server-side --field-manager=crd-restore --prune=false
 ```
 
 ### Step 4: Create the CAPIProvider resource

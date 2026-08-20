@@ -30,7 +30,7 @@ import (
 	turtlesframework "github.com/rancher/turtles/test/framework"
 	"github.com/rancher/turtles/test/testenv"
 
-	"github.com/rancher-sandbox/cluster-api-provider-harvester/test/certification/suites"
+	"github.com/harvester/cluster-api-provider-harvester/test/certification/suites"
 )
 
 var (
