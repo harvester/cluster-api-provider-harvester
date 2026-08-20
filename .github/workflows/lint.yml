@@ -14,10 +14,10 @@ jobs:
     permissions:
       contents: read
     container:
-      image: registry.opensuse.org/opensuse/tumbleweed:latest
+      image: registry.suse.com/bci/golang:1.26
     steps:
       - name: Install dependencies
-        run: zypper -n install git tar gzip curl gawk go nodejs-default
+        run: zypper -n install git tar gzip curl gawk nodejs-default
 
       - name: Clone the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
