@@ -209,8 +209,8 @@ github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674/go.mod h1:r4w7
 github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79/go.mod h1:FecbI9+v66THATjSRHfNgh1IVFe/9kFxbXtjV0ctIMA=
 github.com/harvester/harvester v1.4.0-dev-20240719 h1:HJThu+ackzkRlFMam+pOA28DMk1oKAZ+g+Pc7TW1SDw=
 github.com/harvester/harvester v1.4.0-dev-20240719/go.mod h1:dCT/UePTJTW3QFzwyRfkhGGyr5ts0ZvkX/MsOlP2GdA=
-github.com/harvester/harvester-load-balancer v1.8.1 h1:EE42PG5lpGLBZnH++t08yeGqNlHBtzVO7xoTU/OzAHE=
-github.com/harvester/harvester-load-balancer v1.8.1/go.mod h1:G5ETwm3fjJxKq0IzYbh4Tjyd/BkNN/9z3/tld7KonnQ=
+github.com/harvester/harvester-load-balancer v1.8.2 h1:zYcQzhJSQhbItcQXOPb+tSbSjPQL3WVcV9M7k8EiZDA=
+github.com/harvester/harvester-load-balancer v1.8.2/go.mod h1:xbNVAV0JvcQ2DEoc75iLs9UAWBfxgEf+rjusZE3tt4k=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/ianlancetaylor/demangle v0.0.0-20200824232613-28f6c0f3b639/go.mod h1:aSSvb/t6k1mPoxDqO4vJh6VOCGPwU4O0C2/Eqndh1Sc=
 github.com/ianlancetaylor/demangle v0.0.0-20240312041847-bd984b5ce465/go.mod h1:gx7rwoVhcfuVKG5uya9Hs3Sxj7EIvldVofAWIUtGouw=
