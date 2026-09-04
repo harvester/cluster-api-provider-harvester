@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net"
 	"os"
 	"strings"
 
@@ -59,6 +60,8 @@ data:
   key1: value1
   key2: value2
 `
+
+const lbIPAddress = "10.0.0.1"
 
 var _ = Describe("GetKubeconfigFromClusterAndCheck", func() {
 	var (
@@ -409,8 +412,14 @@ var _ = Describe("getKubeConfig", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingress-expose",
 				Namespace: "kube-system",
-				Annotations: map[string]string{
-					"kube-vip.io/loadbalancerIPs": "172.16.3.100",
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{
+						{
+							IP: lbIPAddress,
+						},
+					},
 				},
 			},
 		}, metav1.CreateOptions{})
@@ -477,15 +486,24 @@ var _ = Describe("getKubeConfig", func() {
 				Name:      "ingress-expose",
 				Namespace: "kube-system",
 			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{
+						{
+							IP: lbIPAddress,
+						},
+					},
+				},
+			},
 		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		result, err := getKubeConfig(context.TODO(), hvClient, "test-sa3", "default", "https://original-url:6443")
+		result, err := getKubeConfig(context.TODO(), hvClient, "test-sa3", "default", net.JoinHostPort(lbIPAddress, "6443"))
 		Expect(err).ToNot(HaveOccurred())
 
 		// Decode and check it uses the original URL
 		decoded, _ := base64.StdEncoding.DecodeString(result)
-		Expect(string(decoded)).To(ContainSubstring("original-url"))
+		Expect(string(decoded)).To(ContainSubstring(lbIPAddress))
 	})
 })
 
@@ -517,8 +535,14 @@ var _ = Describe("GetCloudConfigB64", func() {
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "ingress-expose",
 				Namespace: "kube-system",
-				Annotations: map[string]string{
-					"kube-vip.io/loadbalancerIPs": "10.0.0.1",
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{
+						{
+							IP: lbIPAddress,
+						},
+					},
 				},
 			},
 		}, metav1.CreateOptions{})

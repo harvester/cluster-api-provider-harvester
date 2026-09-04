@@ -99,10 +99,9 @@ generate-modules: ## Run go mod tidy to ensure modules are up to date
 ## Lint / Verify
 ## --------------------------------------
 
-##@ lint and verify:
 
 .PHONY: lint
-lint: $(GOLANGCI_LINT) ## Lint the codebase
+lint: install-golangci-lint ## Lint the codebase
 	$(GOLANGCI_LINT) run -v --timeout 5m $(GOLANGCI_LINT_EXTRA_ARGS)
 	./scripts/ci-lint-dockerfiles.sh $(HADOLINT_VER) $(HADOLINT_FAILURE_THRESHOLD)
 
@@ -294,11 +293,13 @@ $(LOCALBIN):
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
+GOLANGCI_LINT ?= $(LOCALBIN)/golangci-lint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.4.0
 CONTROLLER_TOOLS_VERSION ?= v0.22.0
 ENVTEST_VERSION ?= v0.0.0-20240531134648-6636df17d67b
+GOLANGCI_LINT_VERSION ?= v2.11.1
 HADOLINT_VER := v2.12.0
 HADOLINT_FAILURE_THRESHOLD = warning
 
@@ -317,6 +318,11 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
 	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+
+##@ lint and verify:
+.PHONY: install-golangci-lint
+install-golangci-lint:
+	test -s $(LOCALBIN)/golangci-lint || GOBIN=$(LOCALBIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 ## --------------------------------------
 ## Cleanup / Verification
