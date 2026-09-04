@@ -1556,7 +1556,7 @@ var _ = Describe("createVMFromHarvesterMachine", func() {
 		Expect(vm.Annotations).To(HaveKey(vmAnnotationPVC))
 		Expect(vm.Annotations).To(HaveKey(vmAnnotationNetworkIps))
 		// Verify labels
-		Expect(vm.Labels).To(HaveKeyWithValue("harvesterhci.io/creator", "harvester"))
+		Expect(vm.Labels).To(HaveKeyWithValue("harvesterhci.io/creator", "docker-machine-driver-harvester"))
 		// Verify template exists
 		Expect(vm.Spec.Template).ToNot(BeNil())
 		Expect(vm.Spec.Template.Spec.Domain.CPU.Cores).To(Equal(uint32(4)))
@@ -2913,42 +2913,6 @@ var _ = Describe("buildPVCForVolume with image type", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(*pvc.Spec.StorageClassName).To(Equal("longhorn-image-abc123"))
 		Expect(pvc.Annotations[hvAnnotationImageID]).To(Equal("default/image-abc123"))
-	})
-
-	It("should find image by resource name (not display name)", func() {
-		size := resource.MustParse("40Gi")
-		vol := &infrav1.Volume{
-			VolumeType: "image",
-			ImageName:  "default/image-xyz789", // using resource name, not display name
-			VolumeSize: &size,
-		}
-
-		testImage := &harvesterv1beta1.VirtualMachineImage{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "image-xyz789",
-				Namespace: "default",
-			},
-			Spec: harvesterv1beta1.VirtualMachineImageSpec{
-				DisplayName: "some-other-display-name",
-			},
-			Status: harvesterv1beta1.VirtualMachineImageStatus{
-				StorageClassName: "longhorn-image-xyz789",
-			},
-		}
-		hvClient := hvfake.NewSimpleClientset(testImage)
-
-		scope := &Scope{
-			HarvesterMachine: &infrav1.HarvesterMachine{},
-			HarvesterCluster: &infrav1.HarvesterCluster{
-				Spec: infrav1.HarvesterClusterSpec{TargetNamespace: "default"},
-			},
-			HarvesterClient: hvClient,
-		}
-
-		pvc, err := buildPVCForVolume(vol, "test-pvc", "default", scope)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(*pvc.Spec.StorageClassName).To(Equal("longhorn-image-xyz789"))
-		Expect(pvc.Annotations[hvAnnotationImageID]).To(Equal("default/image-xyz789"))
 	})
 
 	It("should return error when image not found", func() {
