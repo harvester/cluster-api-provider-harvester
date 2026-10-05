@@ -81,7 +81,7 @@ The `vmNetworkConfig.ipPoolRef` in the HarvesterCluster spec references a pool n
 - New machines fail to get that IP even though the original machine no longer exists.
 
 **Cause:**
-The CAPHV controller calls `Store.Release()` during machine deletion to free the IP. If the controller was not running during deletion (e.g., it was restarting or the finalizer was removed manually), the release may not have happened. The IPPool `status.allocated` map retains the stale entry.
+The CAPHV controller releases the IP once the machine VM is gone, by owner (`<namespace>/<HarvesterMachine name>` in `status.allocated`), and keeps the HarvesterMachine finalizer until the pool update succeeds. If the finalizer was removed manually, or the machine was deleted with a provider version older than the fix, the release may not have happened. The IPPool `status.allocated` map retains the stale entry.
 
 **Fix:**
 1. Identify the leaked IP:

@@ -35,6 +35,15 @@ All notable changes to this project are documented in this file.
   template cloning. The field is now omitted when empty, as in the CAPI types.
   Templates already stored with the empty object keep it until they are
   recreated.
+- **IP released while the VM still ran, and possibly from another machine**:
+  machine deletion released the IP pool address at the start of every
+  reconcile pass, by address, before the VM had terminated. Each pass while
+  the VM shut down incremented the pool `available` count again; the address
+  could be handed to a new machine while the old guest still used it; and if
+  it had been reallocated between two passes, the other machine's allocation
+  was removed. The address is now released by owner, once the VM is gone,
+  and a failed pool update keeps the finalizer and is retried instead of
+  leaking the address.
 
 ## [v0.10.1] - 2026-07-28
 

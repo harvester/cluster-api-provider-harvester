@@ -99,24 +99,6 @@ var _ = Describe("IP Pool Store", func() {
 		})
 	})
 
-	Describe("Release", func() {
-		It("should release a reserved IP and move it to history", func() {
-			_, _ = store.Reserve("machine-1", "", net.ParseIP("172.16.3.40"), "")
-
-			err := store.Release(net.ParseIP("172.16.3.40"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(pool.Status.Allocated).ToNot(HaveKey("172.16.3.40"))
-			Expect(pool.Status.AllocatedHistory).To(HaveKeyWithValue("172.16.3.40", "machine-1"))
-			Expect(pool.Status.Available).To(Equal(int64(10)))
-		})
-
-		It("should be safe to call on nil Allocated map", func() {
-			pool.Status.Allocated = nil
-			err := store.Release(net.ParseIP("172.16.3.40"))
-			Expect(err).ToNot(HaveOccurred())
-		})
-	})
-
 	Describe("ReleaseByID", func() {
 		It("should release all IPs for a given ID", func() {
 			_, _ = store.Reserve("machine-1", "", net.ParseIP("172.16.3.40"), "")
