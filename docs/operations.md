@@ -526,7 +526,11 @@ CAPI cascades the deletion through the ownership chain:
 
 1. Cluster deletion triggers Machine deletion
 2. CAPHV deletes the Harvester VM for each Machine
-3. CAPHV deletes associated PVCs (all volumes)
+3. CAPHV deletes associated PVCs (all volumes): it lists them in the
+   `harvesterhci.io/removedPersistentVolumeClaims` annotation of the VM before
+   deleting it, and the Harvester VM controller deletes them with the VM, as for
+   a VM deleted from the Harvester UI with its volumes. Hotplugged volumes are
+   left alone.
 4. CAPHV deletes cloud-init secrets on Harvester
 5. CAPHV releases allocated IPs back to the IPPool
 6. CAPI garbage-collects remaining objects (MachineSet, MachineDeployment, etc.)
