@@ -529,7 +529,18 @@ CAPI cascades the deletion through the ownership chain:
 3. CAPHV deletes associated PVCs (all volumes)
 4. CAPHV deletes cloud-init secrets on Harvester
 5. CAPHV releases allocated IPs back to the IPPool
-6. CAPI garbage-collects remaining objects (MachineSet, MachineDeployment, etc.)
+6. Once no HarvesterMachine of the cluster remains, CAPHV deletes the load
+   balancer, waits for Harvester to remove it, releases the address it may
+   still have reserved for it and deletes the IP pools of the HarvesterCluster,
+   then releases the identity Secret
+7. CAPI garbage-collects remaining objects (MachineSet, MachineDeployment, etc.)
+
+Deleting all the objects of a cluster at once (`kubectl delete -f` on the file
+used to create it) works the same way: the HarvesterCluster waits for its
+machines, and the identity Secret carries a
+`harvester.infrastructure.cluster.x-k8s.io/identity-<HarvesterCluster UID>`
+finalizer for each HarvesterCluster using it, so the controllers can still reach
+Harvester. Each HarvesterCluster removes its own finalizer once deleted.
 
 To verify cleanup is complete:
 
