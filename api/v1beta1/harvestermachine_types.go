@@ -49,6 +49,16 @@ const (
 	// VMProvisioningReadyReason documents that VM provisioning is complete.
 	VMProvisioningReadyReason = "VMProvisioningReady"
 
+	// NodeProviderIDMatchesCondition reports whether the workload cluster Node of the
+	// machine carries the machine provider ID. Cluster API matches the Machine to its
+	// Node by provider ID, and a Node provider ID cannot be changed once set.
+	NodeProviderIDMatchesCondition string = "NodeProviderIDMatches"
+	// NodeProviderIDMatchesReason is used when the Node carries the machine provider ID.
+	NodeProviderIDMatchesReason = "NodeProviderIDMatches"
+	// NodeProviderIDMismatchReason is used when another component set a different
+	// provider ID on the Node first.
+	NodeProviderIDMismatchReason = "NodeProviderIDMismatch"
+
 	// VMRunningCondition documents whether the VM is running.
 	VMRunningCondition string = "VMRunning"
 	// VMRunningReason documents that the VM is running.

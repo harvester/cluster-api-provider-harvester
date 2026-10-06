@@ -35,6 +35,18 @@ All notable changes to this project are documented in this file.
   template cloning. The field is now omitted when empty, as in the CAPI types.
   Templates already stored with the empty object keep it until they are
   recreated.
+- **Second and third control plane nodes stuck without provider ID**: when a
+  machine node had already registered without a provider ID, CAPHV waited for
+  another component to set one and polled forever, never setting it itself.
+  It now claims the provider ID of the Harvester cloud provider,
+  `harvester://<VM UID>`, on the node, and adopts the value of the node when
+  another component set one first.
+- **Provider ID mismatch reported as success**: a node carrying a provider ID
+  different from its machine was treated as initialized, leaving the Machine
+  waiting for its Node without any explanation. It is now reported in the new
+  `NodeProviderIDMatches` condition of the HarvesterMachine.
+  A cluster that still runs the RKE2 embedded cloud controller can get such a
+  node, which `NodeProviderIDMatches` now reports instead of waiting silently.
 
 ## [v0.10.1] - 2026-07-28
 

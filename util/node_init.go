@@ -22,12 +22,14 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 )
 
@@ -41,86 +43,72 @@ const (
 // chicken-and-egg problem where the cloud-provider-harvester pod cannot
 // schedule because CNI is blocked by the uninitialized taint.
 //
-// This is a best-effort operation: all errors are logged as warnings
-// and do not propagate, so it never blocks the reconcile loop.
-func InitializeWorkloadNode(ctx context.Context, logger logr.Logger, workloadConfig *rest.Config, nodeName, providerID string) bool {
+// This is a best-effort operation: errors are logged as warnings and reported as
+// false so the caller retries. The only error returned is a ProviderIDMismatchError,
+// which retrying cannot fix.
+func InitializeWorkloadNode(ctx context.Context, logger logr.Logger, workloadConfig *rest.Config, nodeName, providerID string) (bool, error) {
 	if providerID == "" {
-		return false
+		return false, nil
 	}
 
 	clientset, err := kubernetes.NewForConfig(workloadConfig)
 	if err != nil {
 		logger.Info("Warning: failed to create workload client for node init", "error", err)
 
-		return false
+		return false, nil
 	}
 
-	node, err := clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// Node not yet registered in workload cluster: report it so the caller requeues
-			return false
-		}
+	nodes := clientset.CoreV1().Nodes()
 
+	nodeProviderID, err := claimNodeProviderID(ctx, nodes, nodeName, providerID)
+	if err != nil {
+		logger.Info("Warning: failed to set providerID on workload node", "error", err, "node", nodeName, "providerID", providerID)
+
+		return false, nil
+	}
+
+	if nodeProviderID == "" {
+		// Node not yet registered in workload cluster: report it so the caller requeues
+		return false, nil
+	}
+
+	// A Node provider ID cannot be changed once set, and Cluster API matches the
+	// Machine to its Node by provider ID: a different one set first by another
+	// component can never match.
+	if nodeProviderID != providerID {
+		return false, &ProviderIDMismatchError{Node: nodeName, NodeProviderID: nodeProviderID, MachineProviderID: providerID}
+	}
+
+	node, err := nodes.Get(ctx, nodeName, metav1.GetOptions{})
+	if err != nil {
 		logger.Info("Warning: failed to get workload node for init", "error", err, "node", nodeName)
 
-		return false
+		return false, nil
 	}
 
-	needsProviderID := node.Spec.ProviderID == ""
-	needsTaintRemoval := hasUninitializedTaint(node)
-
-	if !needsProviderID && !needsTaintRemoval {
-		return true
+	if !hasUninitializedTaint(node) {
+		return true, nil
 	}
 
-	if needsProviderID {
-		patch := fmt.Sprintf(`{"spec":{"providerID":%q}}`, providerID)
+	taintsJSON, err := json.Marshal(removeTaint(node.Spec.Taints))
+	if err != nil {
+		logger.Info("Warning: failed to marshal taints", "error", err, "node", nodeName)
 
-		_, err = clientset.CoreV1().Nodes().Patch(ctx, nodeName, types.MergePatchType, []byte(patch), metav1.PatchOptions{})
-		if err != nil {
-			logger.Info("Warning: failed to set providerID on workload node",
-				"error", err, "node", nodeName, "providerID", providerID)
-
-			return false
-		}
-
-		logger.Info("Set providerID on workload node", "node", nodeName, "providerID", providerID)
+		return false, nil
 	}
 
-	if needsTaintRemoval {
-		// Re-fetch node to avoid conflict after providerID patch
-		node, err = clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
-		if err != nil {
-			logger.Info("Warning: failed to re-fetch node after providerID patch", "error", err)
+	patch := fmt.Sprintf(`{"spec":{"taints":%s}}`, taintsJSON)
 
-			return false
-		}
+	_, err = nodes.Patch(ctx, nodeName, types.MergePatchType, []byte(patch), metav1.PatchOptions{})
+	if err != nil {
+		logger.Info("Warning: failed to remove uninitialized taint", "error", err, "node", nodeName)
 
-		newTaints := removeTaint(node.Spec.Taints)
-		if len(newTaints) != len(node.Spec.Taints) {
-			taintsJSON, err := json.Marshal(newTaints)
-			if err != nil {
-				logger.Info("Warning: failed to marshal taints", "error", err, "node", nodeName)
-
-				return false
-			}
-
-			patch := fmt.Sprintf(`{"spec":{"taints":%s}}`, taintsJSON)
-
-			_, err = clientset.CoreV1().Nodes().Patch(ctx, nodeName, types.MergePatchType, []byte(patch), metav1.PatchOptions{})
-			if err != nil {
-				logger.Info("Warning: failed to remove uninitialized taint",
-					"error", err, "node", nodeName)
-
-				return false
-			}
-
-			logger.Info("Removed cloud-provider uninitialized taint", "node", nodeName)
-		}
+		return false, nil
 	}
 
-	return true
+	logger.Info("Removed cloud-provider uninitialized taint", "node", nodeName)
+
+	return true, nil
 }
 
 // hasUninitializedTaint returns true if the node has the cloud-provider uninitialized taint.
@@ -145,4 +133,63 @@ func removeTaint(taints []v1.Taint) []v1.Taint {
 	}
 
 	return result
+}
+
+// ProviderIDMismatchError reports a workload Node whose provider ID differs from the
+// provider ID of its machine.
+type ProviderIDMismatchError struct {
+	Node              string
+	NodeProviderID    string
+	MachineProviderID string
+}
+
+func (e *ProviderIDMismatchError) Error() string {
+	return fmt.Sprintf("node %s has provider ID %s instead of %s, set first by another component "+
+		"(with RKE2 and an external cloud provider, disable the embedded cloud controller: "+
+		"serverConfig.disableComponents.kubernetesComponents: [cloudController])",
+		e.Node, e.NodeProviderID, e.MachineProviderID)
+}
+
+// ClaimNodeProviderID sets providerID on the workload Node nodeName when it has none,
+// and returns the provider ID the Node carries afterwards: providerID, or the one
+// another component (a cloud controller) set first. The Node provider ID cannot be
+// changed once set, so the machine must adopt the value of the Node. It returns ""
+// without error when the Node has not registered yet.
+func ClaimNodeProviderID(ctx context.Context, workloadConfig *rest.Config, nodeName, providerID string) (string, error) {
+	clientset, err := kubernetes.NewForConfig(workloadConfig)
+	if err != nil {
+		return "", errors.Wrap(err, "unable to create a workload cluster client")
+	}
+
+	return claimNodeProviderID(ctx, clientset.CoreV1().Nodes(), nodeName, providerID)
+}
+
+func claimNodeProviderID(ctx context.Context, nodes corev1client.NodeInterface, nodeName, providerID string) (string, error) {
+	node, err := nodes.Get(ctx, nodeName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", errors.Wrapf(err, "unable to get workload node %s", nodeName)
+	}
+
+	if node.Spec.ProviderID != "" {
+		return node.Spec.ProviderID, nil
+	}
+
+	patch := fmt.Sprintf(`{"spec":{"providerID":%q}}`, providerID)
+
+	_, patchErr := nodes.Patch(ctx, nodeName, types.MergePatchType, []byte(patch), metav1.PatchOptions{})
+	if patchErr == nil {
+		return providerID, nil
+	}
+
+	// Another component may have set it in the meantime: adopt its value.
+	node, err = nodes.Get(ctx, nodeName, metav1.GetOptions{})
+	if err == nil && node.Spec.ProviderID != "" {
+		return node.Spec.ProviderID, nil
+	}
+
+	return "", errors.Wrapf(patchErr, "unable to set the provider ID of workload node %s", nodeName)
 }

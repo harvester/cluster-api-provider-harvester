@@ -453,20 +453,27 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 			}
 
 			if hvScope.HarvesterMachine.Spec.ProviderID == "" {
-				providerID, err := getProviderIDFromWorkloadCluster(hvScope)
+				// Use the provider ID of the Harvester cloud provider, harvester://<VM UID>,
+				// and claim it on the node when the node has registered without one,
+				// rather than waiting for a cloud provider that may never set it. A node
+				// provider ID cannot change once set: when another component set one
+				// first, adopt it so that the Machine still matches its Node.
+				providerID := "harvester://" + string(existingVM.UID)
+
+				nodeProviderID, err := claimWorkloadNodeProviderID(hvScope, providerID)
 				if err != nil {
-					providerID = "harvester://" + string(existingVM.UID)
+					logger.Info("Unable to claim the provider ID of the workload node, retrying", "error", err)
+
+					return ctrl.Result{RequeueAfter: requeueDelay}, nil
 				}
 
-				if providerID != "" {
-					hvScope.HarvesterMachine.Spec.ProviderID = providerID
-					hvScope.HarvesterMachine.Status.Ready = true
-					hvScope.HarvesterMachine.Status.Initialization = machineInitializationProvisioned
-				} else {
-					logger.Info("Waiting for ProviderID to be set on Node resource in Workload Cluster ...")
-
-					return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+				if nodeProviderID != "" {
+					providerID = nodeProviderID
 				}
+
+				hvScope.HarvesterMachine.Spec.ProviderID = providerID
+				hvScope.HarvesterMachine.Status.Ready = true
+				hvScope.HarvesterMachine.Status.Initialization = machineInitializationProvisioned
 			} else {
 				conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
 					Type:   infrav1.MachineCreatedCondition,
@@ -555,6 +562,11 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 	// Initialize workload cluster node: set providerID and remove uninitialized taint.
 	// This bypasses the cloud-provider bootstrap chicken-and-egg problem.
 	if !r.initializeWorkloadNode(hvScope) {
+		// A provider ID mismatch is permanent: no need to check every few seconds.
+		if conditions.IsFalse(hvScope.HarvesterMachine, infrav1.NodeProviderIDMatchesCondition) {
+			return ctrl.Result{RequeueAfter: requeueTimeLong}, nil
+		}
+
 		// The node has not registered (or could not be patched) yet. Requeue
 		// explicitly: once the machine events settle, nothing else triggers a
 		// reconcile, and without the providerID on the node the machine would
@@ -586,7 +598,7 @@ func (r *HarvesterMachineReconciler) initializeWorkloadNode(hvScope *Scope) bool
 
 	initStart := time.Now()
 
-	initialized := locutil.InitializeWorkloadNode(
+	initialized, err := locutil.InitializeWorkloadNode(
 		hvScope.Ctx,
 		*hvScope.Logger,
 		workloadConfig,
@@ -596,32 +608,39 @@ func (r *HarvesterMachineReconciler) initializeWorkloadNode(hvScope *Scope) bool
 
 	caphvmetrics.NodeInitDuration.Observe(time.Since(initStart).Seconds())
 
+	if err != nil {
+		hvScope.Logger.Error(err, "workload node provider ID mismatch")
+		conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
+			Type:    infrav1.NodeProviderIDMatchesCondition,
+			Status:  metav1.ConditionFalse,
+			Reason:  infrav1.NodeProviderIDMismatchReason,
+			Message: err.Error(),
+		})
+
+		return false
+	}
+
+	if initialized {
+		conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
+			Type:   infrav1.NodeProviderIDMatchesCondition,
+			Status: metav1.ConditionTrue,
+			Reason: infrav1.NodeProviderIDMatchesReason,
+		})
+	}
+
 	return initialized
 }
 
-func getProviderIDFromWorkloadCluster(hvScope *Scope) (string, error) {
-	var workloadConfig *rest.Config
-
+// claimWorkloadNodeProviderID claims providerID on the workload node of the machine and
+// returns the provider ID the node carries, or "" when the node has not registered yet or
+// the workload cluster cannot be reached yet.
+func claimWorkloadNodeProviderID(hvScope *Scope, providerID string) (string, error) {
 	workloadConfig, err := getWorkloadClusterConfig(hvScope)
 	if err != nil {
-		return "", errors.Wrap(err, "unable to get workload cluster config from Management Cluster")
+		return "", nil //nolint:nilerr // workload cluster not reachable yet: the node cannot exist
 	}
 
-	// Get Kubernetes client for workload cluster.
-	workloadClient, err := client.New(workloadConfig, client.Options{})
-	if err != nil {
-		return "", errors.Wrap(err, "unable to get workload cluster client from Kubeconfig")
-	}
-
-	// Get ProviderID from the Node object in the workload cluster
-	node := &v1.Node{}
-
-	err = workloadClient.Get(hvScope.Ctx, types.NamespacedName{Name: hvScope.HarvesterMachine.Name}, node)
-	if err != nil {
-		return "", err
-	}
-
-	return node.Spec.ProviderID, nil
+	return locutil.ClaimNodeProviderID(hvScope.Ctx, workloadConfig, hvScope.HarvesterMachine.Name, providerID)
 }
 
 // getWorkloadClusterConfig returns a rest.Config for the workload cluster from a secret in the management cluster.
