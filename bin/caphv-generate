@@ -685,6 +685,9 @@ spec:
       serverConfig:
         cni: calico
         cloudProviderName: external
+        disableComponents:
+          kubernetesComponents:
+          - cloudController
       rolloutStrategy:
         type: RollingUpdate
         rollingUpdate:

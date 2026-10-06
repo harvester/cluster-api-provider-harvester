@@ -562,6 +562,9 @@ spec:
       serverConfig:
         cni: ${CNI}
         cloudProviderName: external
+        disableComponents:
+          kubernetesComponents:
+          - cloudController
       rolloutStrategy:
         type: RollingUpdate
         rollingUpdate:
