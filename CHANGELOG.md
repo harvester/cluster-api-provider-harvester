@@ -9,10 +9,10 @@ All notable changes to this project are documented in this file.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to
-  compute the Harvester Endpoint". The VIP is now read where Harvester itself
-  reads it for the kubeconfigs it generates: the `ip` key of the
-  `harvester-system/vip` ConfigMap, which is the same on every Harvester
-  release. IPv6 VIPs are supported.
+  compute the Harvester Endpoint". When `ingress-expose` does not exist, the
+  VIP is now read from the LoadBalancer address of `kube-system/rke2-traefik`,
+  extracted exactly as it was from `ingress-expose`. Older Harvester releases
+  keep the previous behavior.
 - **Machines stuck in Provisioning with the v1beta2 contract**: the CRDs
   declare the `cluster.x-k8s.io/v1beta2` contract, so the CAPI core (v1.13)
   reads `status.initialization.provisioned` of a HarvesterMachine. The end

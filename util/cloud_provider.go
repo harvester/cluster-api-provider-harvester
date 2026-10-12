@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"net"
+	re "regexp"
 	"strings"
 	"time"
 
@@ -45,12 +46,13 @@ const (
 	cloudProviderRoleName = "harvesterhci.io:cloudprovider"
 	maxNumberOfSecrets    = 15
 
-	harvesterVIPConfigMapNamespace = "harvester-system"
-	harvesterVIPConfigMapName      = "vip"
+	harvesterVIPServiceNamespace = "kube-system"
+	legacyVIPServiceName         = "ingress-expose"
+	traefikVIPServiceName        = "rke2-traefik"
 )
 
 // GetCloudConfigB64 returns the kubeconfig for the service account.
-func GetCloudConfigB64(ctx context.Context, hvClient lbclient.Interface, saName string, namespace string) (string, error) {
+func GetCloudConfigB64(ctx context.Context, hvClient lbclient.Interface, saName string, namespace string, harvesterServerURL string) (string, error) {
 	err := createServiceAccountIfNotExists(ctx, hvClient, saName, namespace)
 	if err != nil {
 		return "", err
@@ -61,7 +63,7 @@ func GetCloudConfigB64(ctx context.Context, hvClient lbclient.Interface, saName 
 		return "", err
 	}
 
-	kubeconfig, err := getKubeConfig(ctx, hvClient, saName, namespace)
+	kubeconfig, err := getKubeConfig(ctx, hvClient, saName, namespace, harvesterServerURL)
 
 	return kubeconfig, err
 }
@@ -124,7 +126,7 @@ func createClusterRoleBindingIfNotExists(ctx context.Context, hvClient lbclient.
 }
 
 // getKubeConfig returns a kubeconfig from the Secret associated with the ServiceAccount.
-func getKubeConfig(ctx context.Context, hvClient lbclient.Interface, saName string, namespace string) (string, error) {
+func getKubeConfig(ctx context.Context, hvClient lbclient.Interface, saName string, namespace string, harvesterServerURL string) (string, error) {
 	sa, err := hvClient.CoreV1().ServiceAccounts(namespace).Get(ctx, saName, metav1.GetOptions{})
 	if err != nil {
 		return "", err
@@ -169,7 +171,11 @@ func getKubeConfig(ctx context.Context, hvClient lbclient.Interface, saName stri
 		return "", err
 	}
 
-	kubeconfig, err := buildKubeconfigFromSecret(secret, namespace, "https://"+net.JoinHostPort(vipIP, "6443"))
+	if vipIP != "" {
+		harvesterServerURL = "https://" + net.JoinHostPort(vipIP, "6443")
+	}
+
+	kubeconfig, err := buildKubeconfigFromSecret(secret, namespace, harvesterServerURL)
 	if err != nil {
 		return "", errors.Errorf("unable to build a kubeconfig from secret %s", saName)
 	}
@@ -177,22 +183,40 @@ func getKubeConfig(ctx context.Context, hvClient lbclient.Interface, saName stri
 	return base64.StdEncoding.EncodeToString([]byte(kubeconfig)), nil
 }
 
-// getHarvesterVIP returns the Harvester management VIP the way Harvester computes the server
-// URL of the kubeconfigs it generates: the "ip" key of the harvester-system/vip ConfigMap,
-// recorded by the installer. Unlike the Services through which kube-vip exposes the VIP
-// (ingress-expose, rke2-traefik from v1.9), it does not change between Harvester releases.
+// getHarvesterVIP returns the IPv4 address of the Harvester management VIP: the LoadBalancer
+// address of the Service through which kube-vip exposes it in kube-system.
+//
+// Harvester up to v1.8 exposes the VIP through the ingress-expose Service, Harvester v1.9
+// through rke2-traefik, so rke2-traefik is only read when ingress-expose does not exist.
+// The address is extracted the same way from both: an error when none is allocated yet
+// (the caller requeues), "" (the caller keeps the server URL it was given) when it is not
+// shaped like IPv4.
 func getHarvesterVIP(ctx context.Context, hvClient lbclient.Interface) (string, error) {
-	vipCM, err := hvClient.CoreV1().ConfigMaps(harvesterVIPConfigMapNamespace).Get(ctx, harvesterVIPConfigMapName, metav1.GetOptions{})
-	if err != nil {
-		return "", errors.Wrap(err, "unable to compute the Harvester Endpoint: problem in getting the harvester-system/vip ConfigMap")
+	services := hvClient.CoreV1().Services(harvesterVIPServiceNamespace)
+
+	vipSVC, err := services.Get(ctx, legacyVIPServiceName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		vipSVC, err = services.Get(ctx, traefikVIPServiceName, metav1.GetOptions{})
+		if err != nil {
+			return "", errors.Wrap(err, "unable to compute the Harvester Endpoint: the ingress-expose service (Harvester < v1.9) "+
+				"does not exist and the rke2-traefik service (Harvester >= v1.9) could not be read")
+		}
+	} else if err != nil {
+		return "", errors.Wrap(err, "unable to compute the Harvester Endpoint: problem in getting the ingress-expose service")
 	}
 
-	vip := vipCM.Data["ip"]
-	if net.ParseIP(vip) == nil {
-		return "", errors.Errorf("unable to compute the Harvester Endpoint: invalid VIP %q in the harvester-system/vip ConfigMap", vip)
+	if len(vipSVC.Status.LoadBalancer.Ingress) == 0 {
+		return "", errors.Errorf("unable to compute the Harvester Endpoint: no ip allocated in the %s service", vipSVC.Name)
 	}
 
-	return vip, nil
+	vipIP := vipSVC.Status.LoadBalancer.Ingress[0].IP
+
+	ok, err := re.MatchString(`\d+\.\d+\.\d+\.\d+`, vipIP)
+	if ok && err == nil {
+		return vipIP, nil
+	}
+
+	return "", nil
 }
 
 // buildKubeconfigFromSecret builds a kubeconfig from a secret content.

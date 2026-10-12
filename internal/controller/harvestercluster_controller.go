@@ -858,7 +858,7 @@ func (r *HarvesterClusterReconciler) reconcileCloudProviderConfig(scope *Cluster
 
 		// Generate the B64 Kubeconfig fpr the cloud provider
 		cloudProviderKubeconfigB64, err := locutil.GetCloudConfigB64(scope.Ctx, scope.HarvesterClient,
-			scope.Cluster.Name, scope.HarvesterCluster.Spec.TargetNamespace)
+			scope.Cluster.Name, scope.HarvesterCluster.Spec.TargetNamespace, scope.HarvesterCluster.Spec.Server)
 		if err != nil {
 			return errors.Wrapf(err, "unable to generate the kubeconfig for the cloud provider")
 		}

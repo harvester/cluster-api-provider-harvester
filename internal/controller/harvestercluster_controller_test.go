@@ -3060,23 +3060,42 @@ var _ = Describe("reconcileCloudProviderConfig key and kubeconfig paths", func()
 		},
 	}
 
-	It("should point the cloud provider kubeconfig to the VIP of the harvester-system/vip ConfigMap", func() {
-		r, scope, c := cloudProviderConfigScope(cloudProviderTokenSecret.DeepCopy(), &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{Name: "vip", Namespace: "harvester-system"},
-			Data:       map[string]string{"ip": "172.16.3.100", "mode": "static"},
+	It("should point the cloud provider kubeconfig to the ingress-expose VIP (Harvester < v1.9)", func() {
+		r, scope, c := cloudProviderConfigScope(cloudProviderTokenSecret.DeepCopy(), &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "ingress-expose",
+				Namespace: "kube-system",
+			},
+			Status: corev1.ServiceStatus{LoadBalancer: corev1.LoadBalancerStatus{
+				Ingress: []corev1.LoadBalancerIngress{{IP: "172.16.3.100"}},
+			}},
 		})
 
 		Expect(r.reconcileCloudProviderConfig(scope)).To(Succeed())
 		Expect(cloudProviderKubeconfig(c)).To(ContainSubstring("server: https://172.16.3.100:6443"))
 	})
 
-	It("should error from GetCloudConfigB64 when the harvester-system/vip ConfigMap does not exist", func() {
+	It("should point the cloud provider kubeconfig to the rke2-traefik VIP when ingress-expose is gone (Harvester v1.9)", func() {
+		r, scope, c := cloudProviderConfigScope(cloudProviderTokenSecret.DeepCopy(), &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "rke2-traefik", Namespace: "kube-system"},
+			Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer},
+			Status: corev1.ServiceStatus{LoadBalancer: corev1.LoadBalancerStatus{
+				Ingress: []corev1.LoadBalancerIngress{{IP: "172.16.3.100"}},
+			}},
+		})
+
+		Expect(r.reconcileCloudProviderConfig(scope)).To(Succeed())
+		Expect(cloudProviderKubeconfig(c)).To(ContainSubstring("server: https://172.16.3.100:6443"))
+	})
+
+	It("should error from GetCloudConfigB64 when neither ingress-expose nor rke2-traefik exists", func() {
 		r, scope, _ := cloudProviderConfigScope()
 
 		err := r.reconcileCloudProviderConfig(scope)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unable to generate the kubeconfig"))
-		Expect(err.Error()).To(ContainSubstring("harvester-system/vip"))
+		Expect(err.Error()).To(ContainSubstring("ingress-expose"))
+		Expect(err.Error()).To(ContainSubstring("rke2-traefik"))
 	})
 })
 

@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net"
 	"os"
 	"strings"
 
@@ -68,6 +69,7 @@ var _ = Describe("GetKubeconfigFromClusterAndCheck", func() {
 		resultingKubeconfigB64 string
 		err                    error
 		saName                 string
+		harvesterServerURL     string
 		kubeconfigBytes        []byte
 		hvRESTConfig           *rest.Config
 		hvClient               *versioned.Clientset
@@ -77,6 +79,7 @@ var _ = Describe("GetKubeconfigFromClusterAndCheck", func() {
 		namespace = "default"
 		saName = "test-1"
 		hvKubeconfigB64 = os.Getenv("HV_KUBECONFIG_B64")
+		harvesterServerURL = os.Getenv("HV_SERVER_URL")
 
 		if hvKubeconfigB64 == "" {
 			Skip("HV_KUBECONFIG_B64 not set, skipping integration test")
@@ -95,7 +98,7 @@ var _ = Describe("GetKubeconfigFromClusterAndCheck", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Use the GetCloudConfigB64 function and get the resulting cloud-config B64 encoded string
-		resultingKubeconfigB64, err = GetCloudConfigB64(context.TODO(), hvClient, saName, namespace)
+		resultingKubeconfigB64, err = GetCloudConfigB64(context.TODO(), hvClient, saName, namespace, harvesterServerURL)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Decode the resulting cloud-config B64 encoded string and validate it
@@ -376,7 +379,7 @@ var _ = Describe("createClusterRoleBindingIfNotExists", func() {
 var _ = Describe("getKubeConfig", func() {
 	It("should return error when service account does not exist", func() {
 		hvClient := hvfake.NewSimpleClientset()
-		_, err := getKubeConfig(context.TODO(), hvClient, "nonexistent", "default")
+		_, err := getKubeConfig(context.TODO(), hvClient, "nonexistent", "default", "https://harvester.local:6443")
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -404,11 +407,25 @@ var _ = Describe("getKubeConfig", func() {
 		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		_, err = hvClient.CoreV1().ConfigMaps("harvester-system").Create(context.TODO(), vipConfigMap(lbIPAddress),
-			metav1.CreateOptions{})
+		// Create the ingress-expose service in kube-system with VIP annotation
+		_, err = hvClient.CoreV1().Services("kube-system").Create(context.TODO(), &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "ingress-expose",
+				Namespace: "kube-system",
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{
+						{
+							IP: lbIPAddress,
+						},
+					},
+				},
+			},
+		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		result, err := getKubeConfig(context.TODO(), hvClient, "test-sa", "default")
+		result, err := getKubeConfig(context.TODO(), hvClient, "test-sa", "default", "https://harvester.local:6443")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(result).ToNot(BeEmpty())
 
@@ -417,7 +434,7 @@ var _ = Describe("getKubeConfig", func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("should return error when the harvester-system/vip ConfigMap does not exist", func() {
+	It("should return error when neither ingress-expose nor rke2-traefik exists", func() {
 		hvClient := hvfake.NewSimpleClientset()
 
 		// Create the service account
@@ -437,11 +454,14 @@ var _ = Describe("getKubeConfig", func() {
 		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		_, err = getKubeConfig(context.TODO(), hvClient, "test-sa2", "default")
-		Expect(err).To(MatchError(ContainSubstring("harvester-system/vip")))
+		// No ingress-expose (Harvester < v1.9) nor rke2-traefik (Harvester >= v1.9) service - should fail
+		_, err = getKubeConfig(context.TODO(), hvClient, "test-sa2", "default", "https://harvester.local:6443")
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("ingress-expose"))
+		Expect(err.Error()).To(ContainSubstring("rke2-traefik"))
 	})
 
-	It("should point the kubeconfig to the VIP of the harvester-system/vip ConfigMap", func() {
+	It("should use the rke2-traefik LoadBalancer address when ingress-expose does not exist (Harvester v1.9)", func() {
 		hvClient := hvfake.NewSimpleClientset()
 
 		_, err := hvClient.CoreV1().ServiceAccounts("default").Create(context.TODO(), &corev1.ServiceAccount{
@@ -459,47 +479,159 @@ var _ = Describe("getKubeConfig", func() {
 		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		_, err = hvClient.CoreV1().ConfigMaps("harvester-system").Create(context.TODO(), vipConfigMap("172.16.3.100"),
+		_, err = hvClient.CoreV1().Services("kube-system").Create(context.TODO(), rke2TraefikService("172.16.3.100"),
 			metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		result, err := getKubeConfig(context.TODO(), hvClient, "test-sa-traefik", "default")
+		result, err := getKubeConfig(context.TODO(), hvClient, "test-sa-traefik", "default", "https://original-url:6443")
 		Expect(err).ToNot(HaveOccurred())
 
 		decoded, err := base64.StdEncoding.DecodeString(result)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(string(decoded)).To(ContainSubstring("server: https://172.16.3.100:6443"))
+		Expect(string(decoded)).ToNot(ContainSubstring("original-url"))
+	})
+
+	It("should use provided server URL when VIP annotation has no valid IP", func() {
+		hvClient := hvfake.NewSimpleClientset()
+
+		// Create SA
+		_, err := hvClient.CoreV1().ServiceAccounts("default").Create(context.TODO(), &corev1.ServiceAccount{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-sa3", Namespace: "default"},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		// Create secret
+		_, err = hvClient.CoreV1().Secrets("default").Create(context.TODO(), &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-sa3-token", Namespace: "default"},
+			Type:       corev1.SecretTypeServiceAccountToken,
+			Data: map[string][]byte{
+				corev1.ServiceAccountTokenKey:  []byte("token"),
+				corev1.ServiceAccountRootCAKey: []byte("ca"),
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		// Service with no VIP annotation
+		_, err = hvClient.CoreV1().Services("kube-system").Create(context.TODO(), &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "ingress-expose",
+				Namespace: "kube-system",
+			},
+			Status: corev1.ServiceStatus{
+				LoadBalancer: corev1.LoadBalancerStatus{
+					Ingress: []corev1.LoadBalancerIngress{
+						{
+							IP: lbIPAddress,
+						},
+					},
+				},
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		result, err := getKubeConfig(context.TODO(), hvClient, "test-sa3", "default", net.JoinHostPort(lbIPAddress, "6443"))
+		Expect(err).ToNot(HaveOccurred())
+
+		// Decode and check it uses the original URL
+		decoded, _ := base64.StdEncoding.DecodeString(result)
+		Expect(string(decoded)).To(ContainSubstring(lbIPAddress))
 	})
 })
 
-// vipConfigMap returns the ConfigMap in which the Harvester installer records the management VIP.
-func vipConfigMap(ip string) *corev1.ConfigMap {
-	return &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Name: "vip", Namespace: "harvester-system"},
-		Data:       map[string]string{"enabled": "true", "ip": ip, "mode": "static"},
+// rke2TraefikService returns the Service through which Harvester v1.9 exposes its VIP.
+// An empty ingressIP leaves the LoadBalancer status unset.
+func rke2TraefikService(ingressIP string) *corev1.Service {
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "rke2-traefik", Namespace: "kube-system"},
+		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer},
 	}
+
+	if ingressIP != "" {
+		svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: ingressIP}}
+	}
+
+	return svc
 }
 
 var _ = Describe("getHarvesterVIP", func() {
-	It("should read the VIP from the harvester-system/vip ConfigMap", func() {
-		vip, err := getHarvesterVIP(context.TODO(), hvfake.NewSimpleClientset(vipConfigMap("172.16.3.100")))
+	ingressExpose := func(lbIP string) *corev1.Service {
+		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "ingress-expose", Namespace: "kube-system"}}
+		if lbIP != "" {
+			svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: lbIP}}
+		}
+
+		return svc
+	}
+
+	It("should read the ingress-expose LoadBalancer address first (Harvester < v1.9)", func() {
+		hvClient := hvfake.NewSimpleClientset(ingressExpose("172.16.3.100"), rke2TraefikService("10.0.0.9"))
+
+		vip, err := getHarvesterVIP(context.TODO(), hvClient)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(vip).To(Equal("172.16.3.100"))
 	})
 
-	It("should accept an IPv6 VIP", func() {
-		vip, err := getHarvesterVIP(context.TODO(), hvfake.NewSimpleClientset(vipConfigMap("fd00::10")))
+	It("should keep the current error when ingress-expose has no address allocated yet", func() {
+		hvClient := hvfake.NewSimpleClientset(ingressExpose(""), rke2TraefikService("10.0.0.9"))
+
+		_, err := getHarvesterVIP(context.TODO(), hvClient)
+		Expect(err).To(MatchError(ContainSubstring("no ip allocated in the ingress-expose service")))
+	})
+
+	It("should keep the given server URL when the ingress-expose address is not IPv4", func() {
+		hvClient := hvfake.NewSimpleClientset(ingressExpose("fd00::10"), rke2TraefikService("10.0.0.9"))
+
+		vip, err := getHarvesterVIP(context.TODO(), hvClient)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(vip).To(Equal("fd00::10"))
+		Expect(vip).To(BeEmpty(), "the caller keeps its server URL, as before")
 	})
 
-	It("should error when the ConfigMap holds no valid IP yet", func() {
-		_, err := getHarvesterVIP(context.TODO(), hvfake.NewSimpleClientset(vipConfigMap("")))
-		Expect(err).To(MatchError(ContainSubstring("invalid VIP")))
+	It("should fall back to the rke2-traefik LoadBalancer address (Harvester v1.9)", func() {
+		hvClient := hvfake.NewSimpleClientset(rke2TraefikService("172.16.3.100"))
+
+		vip, err := getHarvesterVIP(context.TODO(), hvClient)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(vip).To(Equal("172.16.3.100"))
 	})
 
-	It("should error when the ConfigMap does not exist", func() {
-		_, err := getHarvesterVIP(context.TODO(), hvfake.NewSimpleClientset())
-		Expect(err).To(MatchError(ContainSubstring("harvester-system/vip")))
+	It("should keep the given server URL when the rke2-traefik address is not IPv4, like ingress-expose", func() {
+		hvClient := hvfake.NewSimpleClientset(rke2TraefikService("fd00::10"))
+
+		vip, err := getHarvesterVIP(context.TODO(), hvClient)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(vip).To(BeEmpty(), "the caller keeps its server URL")
+	})
+
+	It("should error when rke2-traefik has no address allocated yet, like ingress-expose", func() {
+		hvClient := hvfake.NewSimpleClientset(rke2TraefikService(""))
+
+		_, err := getHarvesterVIP(context.TODO(), hvClient)
+		Expect(err).To(MatchError(ContainSubstring("no ip allocated in the rke2-traefik service")))
+	})
+
+	It("should error, naming both services, when neither service exists", func() {
+		hvClient := hvfake.NewSimpleClientset()
+
+		_, err := getHarvesterVIP(context.TODO(), hvClient)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("ingress-expose"))
+		Expect(err.Error()).To(ContainSubstring("rke2-traefik"))
+	})
+
+	It("should not fall back to rke2-traefik when ingress-expose cannot be read for another reason", func() {
+		hvClient := hvfake.NewSimpleClientset(rke2TraefikService("172.16.3.100"))
+		hvClient.PrependReactor("get", "services", func(action k8stesting.Action) (bool, runtime.Object, error) {
+			if get, ok := action.(k8stesting.GetAction); ok && get.GetName() == "ingress-expose" {
+				return true, nil, errors.New("injected API error")
+			}
+
+			return false, nil, nil
+		})
+
+		_, err := getHarvesterVIP(context.TODO(), hvClient)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("injected API error"))
+		Expect(err.Error()).To(ContainSubstring("ingress-expose"))
 	})
 })
