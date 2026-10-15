@@ -110,8 +110,6 @@ func (r *HarvesterMachineReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	logger := log.FromContext(ctx)
 	ctx = ctrl.LoggerInto(ctx, logger)
 
-	logger.Info("Reconciling HarvesterMachine ...")
-
 	hvMachine := &infrav1.HarvesterMachine{}
 
 	err := r.Get(ctx, req.NamespacedName, hvMachine)
@@ -126,6 +124,8 @@ func (r *HarvesterMachineReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		return ctrl.Result{}, err
 	}
+
+	logger.V(1).Info("Reconciling HarvesterMachine")
 
 	// Initialize the patch helper
 	patchHelper, err := patch.NewHelper(hvMachine, r.Client)

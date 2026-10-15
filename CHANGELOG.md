@@ -36,6 +36,13 @@ All notable changes to this project are documented in this file.
   Templates already stored with the empty object keep it until they are
   recreated.
 
+### Changed
+
+- **Quieter controller logs**: the start of each HarvesterMachine and
+  HarvesterCluster reconcile is logged at debug level (verbosity 1) once the
+  object is read, instead of at info level before reading it. Errors keep
+  their own log lines.
+
 ## [v0.10.1] - 2026-07-28
 
 ### Fixed
