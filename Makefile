@@ -28,13 +28,17 @@ endif
 # Registry / images
 TAG ?= dev
 ARCH ?= $(shell go env GOARCH)
-ALL_ARCH = amd64 arm arm64 ppc64le s390x
+ALL_ARCH = amd64 arm64
 REGISTRY ?= docker.io
 ORG ?= harvester
 IMAGE_NAME ?= cluster-api-provider-harvester
+CHART_IMAGE_NAME ?= $(IMAGE_NAME)-chart
+CHART_TAG ?= v0.1.0-dev
+
 # Image URL to use all building/pushing image targets
 IMG ?= $(REGISTRY)/$(ORG)/$(IMAGE_NAME)
-
+HELM_VERSION ?= v3.22.1
+YQ_VERSION ?= v4.53.6
 # Allow overriding the imagePullPolicy
 PULL_POLICY ?= Always
 
@@ -258,20 +262,14 @@ manifest-modification: # Set the manifest images to the staging/production bucke
 
 .PHONY: release-manifests
 release-manifests: $(RELEASE_DIR) $(KUSTOMIZE) ## Build the manifests to publish with a release
-	# Build components.
-	$(KUSTOMIZE) build config/default > $(RELEASE_DIR)/infrastructure-components.yaml
-	$(MAKE) set-manifest-image MANIFEST_IMG=$(IMG) MANIFEST_TAG=$(TAG) TARGET_RESOURCE="$(RELEASE_DIR)/infrastructure-components.yaml"
-
 	# Add metadata to the release artifacts
 	cp metadata.yaml $(RELEASE_DIR)/metadata.yaml
 
 	# Add cluster templates (clusterctl convention: cluster-template-{flavor}.yaml, clusterclass-{name}.yaml)
 	cp templates/cluster-template-rke2.yaml $(RELEASE_DIR)/cluster-template.yaml
 	cp templates/cluster-template-rke2-dhcp.yaml $(RELEASE_DIR)/cluster-template-dhcp.yaml
-	cp templates/cluster-template-rke2-generateCPI.yaml $(RELEASE_DIR)/cluster-template-generateCPI.yaml
 	cp templates/cluster-template-kubeadm.yaml $(RELEASE_DIR)/cluster-template-kubeadm.yaml
 	cp templates/cluster-template-talos.yaml $(RELEASE_DIR)/cluster-template-talos.yaml
-	cp templates/cluster-template-rke2-stig.yaml $(RELEASE_DIR)/cluster-template-stig.yaml
 	cp templates/clusterclass/rke2/clusterclass-harvester-rke2.yaml $(RELEASE_DIR)/clusterclass-harvester-rke2.yaml
 
 .PHONY: release-notes
@@ -408,3 +406,26 @@ $(GH): # Download GitHub cli into the tools bin folder
 	hack/ensure-gh.sh \
 		-b $(TOOLS_BIN_DIR) \
 		$(GH_VERSION)
+
+.PHONY: yq
+yq: # Download yq into the bin folder
+	test -s $(LOCALBIN)/yq || GOBIN=$(LOCALBIN) go install github.com/mikefarah/yq/v4@$(YQ_VERSION)
+
+.PHONY: helm
+helm: # Download helm into the  bin folder
+	test -s $(LOCALBIN)/helm || GOBIN=$(LOCALBIN) go install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
+
+.PHONY: docker-push-chart
+docker-push-chart:  yq helm ## Package chart and push it to the container registry
+	@if [ -d /tmp/$(CHART_IMAGE_NAME) ]; then \
+		rm -rf /tmp/$(CHART_IMAGE_NAME); \
+	fi ; \
+	cp -r ./chart/caphv /tmp/$(CHART_IMAGE_NAME) ; \
+	$(LOCALBIN)/yq -i '.name = "$(CHART_IMAGE_NAME)"' /tmp/$(CHART_IMAGE_NAME)/Chart.yaml ; \
+	$(LOCALBIN)/yq -i '.image.tag = "$(TAG)"' /tmp/$(CHART_IMAGE_NAME)/values.yaml ; \
+	$(LOCALBIN)/yq -i '.image.pullPolicy = "$(PULL_POLICY)"' /tmp/$(CHART_IMAGE_NAME)/values.yaml ; \
+	$(LOCALBIN)/yq -i '.image.repository = "$(IMG)"' /tmp/$(CHART_IMAGE_NAME)/values.yaml ; \
+	$(LOCALBIN)/helm package /tmp/$(CHART_IMAGE_NAME) --version $(CHART_TAG) -d /tmp ; \
+	$(LOCALBIN)/helm push /tmp/$(CHART_IMAGE_NAME)-$(CHART_TAG).tgz oci://$(REGISTRY)/$(ORG) ; \
+	rm -f /tmp/$(CHART_IMAGE_NAME)-$(CHART_TAG).tgz ; \
+	rm -rf /tmp/$(CHART_IMAGE_NAME)

@@ -1,9 +1,9 @@
 # CAPHV Helm chart values
 
 image:
-  repository: ghcr.io/rancher-sandbox/cluster-api-provider-harvester
-  tag: v0.2.3
-  pullPolicy: IfNotPresent
+  repository: rancher/cluster-api-provider-harvester
+  tag: dev
+  pullPolicy: Always
 
 replicas: 1
 
