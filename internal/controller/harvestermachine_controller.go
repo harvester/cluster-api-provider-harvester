@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -1143,6 +1144,7 @@ func buildNetworkInterfaces(machine *infrav1.HarvesterMachine) []kubevirtv1.Inte
 		interfaces = append(interfaces, kubevirtv1.Interface{
 			Name:                   "nic-" + strconv.Itoa(i+1),
 			Model:                  "virtio",
+			MacAddress:             nicMACAddress(machine, i),
 			InterfaceBindingMethod: kubevirtv1.DefaultBridgeNetworkInterface().InterfaceBindingMethod,
 		})
 	}
@@ -1150,8 +1152,27 @@ func buildNetworkInterfaces(machine *infrav1.HarvesterMachine) []kubevirtv1.Inte
 	return interfaces
 }
 
-// buildNetworkDataStatic generates cloud-init network-config v1 with static IP on eth0
-// and DHCP on additional NICs.
+// nicMACAddress returns a stable, locally administered unicast MAC address for
+// the NIC at the given index. Pinning the MAC lets the cloud-init network
+// configuration match each NIC by address instead of by a guessed name: guest
+// images disagree on interface naming (eth0 on SLE 15, enp1s0 on SLE 16).
+//
+// Harvester also assigns locally administered MAC addresses (GenerateLAAMacAddress,
+// called by its VM mutator), but only at admission, after the cloud-init Secret has
+// been written, and only on recent releases, so CAPHV cannot rely on it. The address
+// is derived from the machine UID (a random UUID): stable across reconciles,
+// unrelated between machines, with 46 random bits like kernel-generated addresses.
+func nicMACAddress(machine *infrav1.HarvesterMachine, index int) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s/%s/%s/%d",
+		machine.Namespace, machine.Name, machine.UID, index))
+
+	// Clear the multicast bit, set the locally administered bit.
+	return net.HardwareAddr{sum[0]&^0x03 | 0x02, sum[1], sum[2], sum[3], sum[4], sum[5]}.String()
+}
+
+// buildNetworkDataStatic generates cloud-init network-config v1 with a static IP on the
+// first NIC and DHCP on additional NICs. Each entry is matched by MAC address, so the
+// configuration applies whatever name the guest gives the interface.
 func buildNetworkDataStatic(hvScope *Scope) string {
 	var b strings.Builder
 
@@ -1167,7 +1188,8 @@ func buildNetworkDataStatic(hvScope *Scope) string {
 	for i := range hvScope.HarvesterMachine.Spec.Networks {
 		ethName := "eth" + strconv.Itoa(i)
 
-		fmt.Fprintf(&b, "  - type: physical\n    name: %s\n    subnets:\n", ethName)
+		fmt.Fprintf(&b, "  - type: physical\n    name: %s\n    mac_address: \"%s\"\n    subnets:\n",
+			ethName, nicMACAddress(hvScope.HarvesterMachine, i))
 
 		if i == 0 {
 			fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
@@ -1225,14 +1247,24 @@ func buildDHCPCloudInit(hvScope *Scope) string {
 	b.WriteString("    DHCSCRIPT\n")
 	fmt.Fprintf(&b, "    chmod +x %s\n", scriptPath)
 
-	// Then one entry per NIC to run dhclient
+	// Then one entry per NIC to run dhclient. The interface is looked up by its MAC
+	// address because its name depends on the guest image (eth0, enp1s0, ...). Images
+	// without ISC dhclient (SLE 16 uses NetworkManager, whose DHCP works) are skipped.
 	for i := range hvScope.HarvesterMachine.Spec.Networks {
-		ethName := "eth" + strconv.Itoa(i)
+		nicID := "nic" + strconv.Itoa(i)
 		// -1 = try once then fork to background (parent exits, bootcmd continues).
 		// Do NOT use -d (foreground) as it would block cloud-init forever.
-		fmt.Fprintf(&b,
-			"  - ['dhclient', '-1', '-sf', '%s', '-lf', '/tmp/dhclient-%s.lease', '-pf', '/tmp/dhclient-%s.pid', '%s']\n",
-			scriptPath, ethName, ethName, ethName)
+		// cloud-init joins every bootcmd entry into a single shell script, so this
+		// entry must not exit: it would skip the entries that follow it.
+		fmt.Fprintf(&b, "  - |\n"+
+			"    if command -v dhclient >/dev/null 2>&1; then\n"+
+			"      for dev in /sys/class/net/*; do\n"+
+			"        if [ \"$(cat \"$dev/address\")\" = \"%s\" ]; then\n"+
+			"          dhclient -1 -sf %s -lf /tmp/dhclient-%s.lease -pf /tmp/dhclient-%s.pid \"${dev##*/}\"\n"+
+			"        fi\n"+
+			"      done\n"+
+			"    fi\n",
+			nicMACAddress(hvScope.HarvesterMachine, i), scriptPath, nicID, nicID)
 	}
 
 	return b.String()

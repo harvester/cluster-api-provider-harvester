@@ -146,6 +146,7 @@ version: 1
 config:
   - type: physical
     name: eth0
+    mac_address: "02:5e:f3:9b:62:30"
     subnets:
       - type: static
         address: 172.16.3.40
@@ -165,6 +166,43 @@ config:
    kubectl get secret <machine-name>-cloud-init -n <target-ns> -o jsonpath='{.data.networkdata}' | base64 -d
    ```
 4. If using custom bootstrap data, ensure your bootstrap provider does not inject a network-config v2 payload that overrides the CAPHV-generated v1 config.
+
+---
+
+### Static IP Not Applied on Images With Predictable Interface Names (SLE 16)
+
+**Symptoms:**
+- A machine using an IPPool boots but never gets its allocated address; it may
+  get an unrelated DHCP lease instead, or no IPv4 address at all.
+- The guest names its NIC `enp1s0` (or `ens3`, ...), not `eth0`.
+- With NetworkManager (SLE 16), `nmcli con show` lists a `cloud-init eth0`
+  profile with no device, while `Wired connection 1` is active on `enp1s0`.
+
+**Cause:**
+Before the fix, CAPHV named the interfaces `eth0`, `eth1`, ... in the
+network config. That only matches images using legacy naming (SLE 15). Images
+with predictable naming never apply the static configuration.
+
+CAPHV now pins a MAC address on each VM interface and matches the network
+config by that address, so the configuration applies whatever name the image
+gives the interface (cloud-init renames it `eth0`, `eth1`, ...). The DHCP
+workaround also finds the interface by MAC and is skipped on images without
+ISC `dhclient`.
+
+**Fix:**
+- Upgrade the provider. Only machines created after the upgrade get the new
+  behavior; existing VMs are not modified (CAPI machines are immutable, roll
+  them to pick it up).
+- On provider versions without the fix, boot the image with `net.ifnames=0` on
+  the kernel command line so that it names its interfaces `eth0`, `eth1`, ...
+
+**Related error:**
+`duplicate mac address present for vm <name> for cluster network <network>`
+comes from the Harvester VM validator, which rejects a MAC address already in
+use on the same cluster network. CAPHV derives each address from the
+HarvesterMachine UID with 46 random bits, so a collision is very unlikely; if
+it happens, delete the Machine: its replacement gets a new UID, hence new
+addresses.
 
 ---
 

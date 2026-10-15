@@ -18,6 +18,8 @@ package controller
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,6 +93,74 @@ var _ = Describe("Convert HarvesterMachine networks to Kubevirt Networks", func(
 })
 
 // =============================================================================
+// Tests for the stable NIC MAC addresses used to match cloud-init network config
+// =============================================================================
+
+var _ = Describe("nicMACAddress", func() {
+	machine := func(ns, name string) *infrav1.HarvesterMachine {
+		return &infrav1.HarvesterMachine{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name}}
+	}
+
+	It("Should return a locally administered unicast MAC address", func() {
+		mac := nicMACAddress(machine("ns", "m1"), 0)
+		hw, err := net.ParseMAC(mac)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(hw).To(HaveLen(6))
+		Expect(hw[0]&0x01).To(BeZero(), "must be unicast")
+		Expect(hw[0]&0x02).ToNot(BeZero(), "must be locally administered")
+	})
+
+	It("Should spread over 46 random bits like kernel-generated addresses", func() {
+		firstOctets := map[byte]bool{}
+
+		for i := range 64 {
+			hw, err := net.ParseMAC(nicMACAddress(machine("ns", "m"+strconv.Itoa(i)), 0))
+			Expect(err).ToNot(HaveOccurred())
+
+			firstOctets[hw[0]] = true
+		}
+		// A constant first octet would waste 6 bits of entropy.
+		Expect(len(firstOctets)).To(BeNumerically(">", 1))
+	})
+
+	It("Should be stable for the same machine and NIC index", func() {
+		Expect(nicMACAddress(machine("ns", "m1"), 0)).To(Equal(nicMACAddress(machine("ns", "m1"), 0)))
+	})
+
+	It("Should differ for machines with the same name but a different UID", func() {
+		a := machine("ns", "m1")
+		a.UID = "11111111-1111-1111-1111-111111111111"
+		b := machine("ns", "m1")
+		b.UID = "22222222-2222-2222-2222-222222222222"
+		Expect(nicMACAddress(a, 0)).ToNot(Equal(nicMACAddress(b, 0)))
+	})
+
+	It("Should differ across NIC indexes, machine names and namespaces", func() {
+		macs := map[string]bool{
+			nicMACAddress(machine("ns", "m1"), 0):  true,
+			nicMACAddress(machine("ns", "m1"), 1):  true,
+			nicMACAddress(machine("ns", "m2"), 0):  true,
+			nicMACAddress(machine("ns2", "m1"), 0): true,
+		}
+		Expect(macs).To(HaveLen(4))
+	})
+})
+
+var _ = Describe("buildNetworkInterfaces", func() {
+	It("Should pin each interface to the MAC address used by the cloud-init network config", func() {
+		m := &infrav1.HarvesterMachine{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "m1"},
+			Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production", "default/management"}},
+		}
+
+		interfaces := buildNetworkInterfaces(m)
+		Expect(interfaces).To(HaveLen(2))
+		Expect(interfaces[0].MacAddress).To(Equal(nicMACAddress(m, 0)))
+		Expect(interfaces[1].MacAddress).To(Equal(nicMACAddress(m, 1)))
+	})
+})
+
+// =============================================================================
 // Tests for buildNetworkDataStatic and buildDHCPCloudInit (existing + new)
 // =============================================================================
 
@@ -110,9 +180,15 @@ var _ = Describe("buildNetworkData", func() {
 			Expect(result).To(ContainSubstring("bootcmd:"))
 			Expect(result).To(ContainSubstring("dhclient-script-caphv.sh"))
 			Expect(result).To(ContainSubstring("dhclient"))
-			Expect(result).To(ContainSubstring("eth0"))
 			Expect(result).To(ContainSubstring("cat >"))                         // script created inline in bootcmd
 			Expect(strings.Count(result, "dhclient")).To(BeNumerically(">=", 2)) // script ref + bootcmd
+			// The interface is found by its MAC address, never by a guessed name:
+			// predictable naming (SLE 16: enp1s0) breaks any ethN assumption.
+			Expect(result).ToNot(ContainSubstring("eth0"))
+			Expect(result).To(ContainSubstring(nicMACAddress(scope.HarvesterMachine, 0)))
+			Expect(result).To(ContainSubstring("/sys/class/net/"))
+			// Images without ISC dhclient (SLE 16, NetworkManager) must not fail bootcmd.
+			Expect(result).To(ContainSubstring("command -v dhclient"))
 		})
 	})
 
@@ -128,10 +204,12 @@ var _ = Describe("buildNetworkData", func() {
 			}
 
 			result := buildDHCPCloudInit(scope)
-			Expect(result).To(ContainSubstring("eth0"))
-			Expect(result).To(ContainSubstring("eth1"))
-			Expect(result).To(ContainSubstring("dhclient-eth0.lease"))
-			Expect(result).To(ContainSubstring("dhclient-eth1.lease"))
+			Expect(result).To(ContainSubstring(nicMACAddress(scope.HarvesterMachine, 0)))
+			Expect(result).To(ContainSubstring(nicMACAddress(scope.HarvesterMachine, 1)))
+			Expect(result).To(ContainSubstring("dhclient-nic0.lease"))
+			Expect(result).To(ContainSubstring("dhclient-nic1.lease"))
+			Expect(result).ToNot(ContainSubstring("eth0"))
+			Expect(result).ToNot(ContainSubstring("eth1"))
 		})
 	})
 
@@ -169,6 +247,8 @@ var _ = Describe("buildNetworkData", func() {
 			Expect(result).To(ContainSubstring("type: dhcp"))
 			Expect(result).To(ContainSubstring("type: nameserver"))
 			Expect(result).To(ContainSubstring("- 172.16.0.1"))
+			Expect(result).To(ContainSubstring("mac_address: \"" + nicMACAddress(scope.HarvesterMachine, 0) + "\""))
+			Expect(result).To(ContainSubstring("mac_address: \"" + nicMACAddress(scope.HarvesterMachine, 1) + "\""))
 		})
 	})
 
@@ -200,6 +280,7 @@ var _ = Describe("buildNetworkData", func() {
 config:
   - type: physical
     name: eth0
+    mac_address: "` + nicMACAddress(scope.HarvesterMachine, 0) + `"
     subnets:
       - type: static
         address: 172.16.3.40
@@ -374,12 +455,14 @@ config:
 			}
 
 			result := buildDHCPCloudInit(scope)
-			Expect(result).To(ContainSubstring("eth0"))
-			Expect(result).To(ContainSubstring("eth1"))
-			Expect(result).To(ContainSubstring("eth2"))
-			Expect(result).To(ContainSubstring("dhclient-eth0.lease"))
-			Expect(result).To(ContainSubstring("dhclient-eth1.lease"))
-			Expect(result).To(ContainSubstring("dhclient-eth2.lease"))
+
+			for i := range 3 {
+				Expect(result).To(ContainSubstring(nicMACAddress(scope.HarvesterMachine, i)))
+			}
+
+			Expect(result).To(ContainSubstring("dhclient-nic0.lease"))
+			Expect(result).To(ContainSubstring("dhclient-nic1.lease"))
+			Expect(result).To(ContainSubstring("dhclient-nic2.lease"))
 		})
 	})
 })
