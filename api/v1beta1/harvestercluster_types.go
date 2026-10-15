@@ -30,6 +30,13 @@ const (
 
 	// ClusterFinalizerLegacy is the old finalizer name without path segment, kept for migration.
 	ClusterFinalizerLegacy = "harvester.infrastructure.cluster.x-k8s.io"
+
+	// IdentitySecretFinalizerPrefix prefixes the finalizer a HarvesterCluster sets on its
+	// identity Secret, followed by the HarvesterCluster UID. The controllers need the
+	// Secret to delete the cluster resources in Harvester, so it must not disappear before
+	// the HarvesterCluster is deleted. One finalizer per HarvesterCluster lets several
+	// clusters share a Secret and release it independently.
+	IdentitySecretFinalizerPrefix = "harvester.infrastructure.cluster.x-k8s.io/identity-"
 	// DHCP is one of the possible values for the IPAMType field in the LoadBalancerConfig.
 	DHCP = "dhcp"
 	// POOL is one of the possible values for the IPAMType field in the LoadBalancerConfig.

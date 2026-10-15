@@ -15,6 +15,7 @@ All commands assume you have `kubectl` configured to reach the management cluste
 - [VM Creation Issues](#vm-creation-issues)
 - [Machine Not Becoming Ready](#machine-not-becoming-ready)
 - [etcd Issues](#etcd-issues)
+- [Deletion Issues](#deletion-issues)
 - [Useful Commands for Debugging](#useful-commands-for-debugging)
 
 ---
@@ -782,6 +783,39 @@ RKE2's own control plane controller also handles etcd member removal in most cas
    # On the replacement CP node
    systemctl restart rke2-server
    ```
+
+---
+
+## Deletion Issues
+
+### Identity Secret Stuck in Terminating
+
+**Symptoms:**
+- `kubectl get secret <identity-secret>` shows a deletion timestamp and the Secret
+  never goes away.
+- Its finalizers include `harvester.infrastructure.cluster.x-k8s.io/identity-<uid>`.
+
+**Cause:**
+Each HarvesterCluster puts this finalizer on its identity Secret, so that the
+Secret survives until the cluster resources in Harvester are deleted, and removes
+it at the end of its own deletion. A finalizer remains when its HarvesterCluster
+went away without that deletion running: the HarvesterCluster was moved with
+`clusterctl move` (the source objects are deleted while paused), or its
+`spec.identitySecret` was changed to another Secret.
+
+**Fix:**
+Check that no HarvesterCluster with that UID exists any more
+(`kubectl get harvesterclusters -A -o custom-columns=NAME:.metadata.name,UID:.metadata.uid`),
+then remove the finalizer:
+
+```bash
+kubectl patch secret <identity-secret> -n <namespace> --type json \
+  -p '[{"op": "remove", "path": "/metadata/finalizers/<index>"}]'
+```
+
+A HarvesterCluster being deleted also waits for the HarvesterMachines of its
+cluster: its log shows `Waiting for the HarvesterMachines of the cluster to be
+deleted` until they are gone.
 
 ---
 

@@ -212,7 +212,7 @@ func (r *HarvesterMachineReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	hvClient, err := locutil.GetHarvesterClientFromSecret(hvSecret)
 	if err != nil {
-		logger.Error(err, "unable to create Harvester client from Datasource secret "+hvSecret.Name)
+		return ctrl.Result{}, errors.Wrapf(err, "unable to create a Harvester client from the identity secret %s", hvSecret.Name)
 	}
 
 	hvScope := Scope{

@@ -110,7 +110,7 @@ type ClusterScope struct {
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=harvesterclusters/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=harvesterclusters/finalizers,verbs=update
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters;clusters/status;machinesets;machines;machines/status;machinepools;machinepools/status,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;patch
 //+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;update;patch;delete
 
 // Reconcile reads that state of the cluster for a HarvesterCluster object and makes changes based on the state read.
@@ -175,7 +175,14 @@ func (r *HarvesterClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	var hvRESTConfig *rest.Config
 
-	hvRESTConfig, err = r.reconcileHarvesterConfig(ctx, &cluster)
+	if cluster.DeletionTimestamp.IsZero() {
+		hvRESTConfig, err = r.reconcileHarvesterConfig(ctx, &cluster)
+	} else {
+		// Deleting only needs to reach Harvester: the availability checks of a normal
+		// reconcile must not keep the cluster from being deleted.
+		hvRESTConfig, err = r.harvesterRESTConfig(ctx, &cluster)
+	}
+
 	if err != nil {
 		return ctrl.Result{RequeueAfter: requeueTimeLong}, err
 	}
@@ -294,6 +301,13 @@ func (r *HarvesterClusterReconciler) ReconcileNormal(scope *ClusterScope) (res c
 		return ctrl.Result{}, nil
 	}
 
+	// From now on the deletion has resources to clean up in Harvester: keep the Secret it
+	// needs to reach Harvester.
+	err = protectIdentitySecret(scope)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	// Reconcile VM IP Pool if VMNetworkConfig is set
 	err = r.reconcileVMIPPool(scope)
 	if err != nil {
@@ -373,7 +387,7 @@ func (r *HarvesterClusterReconciler) ReconcileNormal(scope *ClusterScope) (res c
 	if len(ownedCPHarvesterMachines) == 0 {
 		// Give the LB a name that is RFC-1035 compliant
 		lbName := locutil.GenerateRFC1035Name([]string{scope.HarvesterCluster.Namespace, scope.HarvesterCluster.Name, "lb"})
-		lbNamespacedName := scope.HarvesterCluster.Spec.TargetNamespace + "/" + lbName
+		lbNamespacedName := loadBalancerOwnerID(scope.HarvesterCluster)
 		// Create a placeholder LoadBalancer svc to avoid blocking the CAPI Controller
 		existingPlaceholderLB, err1 := scope.HarvesterClient.CoreV1().Services(scope.HarvesterCluster.Spec.TargetNamespace).Get(
 			scope.Ctx,
@@ -719,7 +733,24 @@ func (r *HarvesterClusterReconciler) ReconcileDelete(scope *ClusterScope) (ctrl.
 	logger := log.FromContext(scope.Ctx)
 	logger.Info("Deleting Harvester Cluster ...", "cluster-name", scope.HarvesterCluster.Name, "cluster-namespace", scope.HarvesterCluster.Namespace)
 
-	err := scope.HarvesterClient.LoadbalancerV1beta1().LoadBalancers(scope.HarvesterCluster.Spec.TargetNamespace).Delete(
+	// The HarvesterMachines need the HarvesterCluster and its identity Secret to delete
+	// their VMs, and the control plane load balancer must outlive the control plane
+	// machines: wait for the machines of the cluster to be gone first.
+	machines := &infrav1.HarvesterMachineList{}
+
+	err := scope.ReconcileClient.List(scope.Ctx, machines, client.InNamespace(scope.HarvesterCluster.Namespace),
+		client.MatchingLabels{clusterv1.ClusterNameLabel: scope.Cluster.Name})
+	if err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "unable to list the HarvesterMachines of the cluster")
+	}
+
+	if len(machines.Items) > 0 {
+		logger.Info("Waiting for the HarvesterMachines of the cluster to be deleted", "count", len(machines.Items))
+
+		return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
+	}
+
+	err = scope.HarvesterClient.LoadbalancerV1beta1().LoadBalancers(scope.HarvesterCluster.Spec.TargetNamespace).Delete(
 		scope.Ctx,
 		locutil.GenerateRFC1035Name([]string{scope.HarvesterCluster.Namespace, scope.HarvesterCluster.Name, "lb"}),
 		v1.DeleteOptions{})
@@ -734,6 +765,42 @@ func (r *HarvesterClusterReconciler) ReconcileDelete(scope *ClusterScope) (ctrl.
 	}
 
 	logger.V(5).Info("Load Balancer deleted successfully")
+
+	err = scope.HarvesterClient.CoreV1().Services(scope.HarvesterCluster.Spec.TargetNamespace).Delete(
+		scope.Ctx,
+		locutil.GenerateRFC1035Name([]string{scope.HarvesterCluster.Namespace, scope.HarvesterCluster.Name, "lb"}),
+		v1.DeleteOptions{})
+	if err != nil {
+		if !apierrors.IsNotFound(err) {
+			logger.Error(err, "unable to delete Load Balancer Service in Harvester")
+
+			return ctrl.Result{RequeueAfter: requeueTimeLong}, err
+		}
+
+		logger.Info("no Load Balancer Service to be deleted, skipping ...")
+	}
+
+	logger.V(5).Info("Load Balancer Service deleted successfully") //nolint:mnd
+
+	// The Harvester load balancer controller releases its address when the LoadBalancer
+	// is deleted, and needs the IP pool for it: wait for the LoadBalancer to be gone
+	// before releasing what is left and deleting the pools.
+	_, err = scope.HarvesterClient.LoadbalancerV1beta1().LoadBalancers(scope.HarvesterCluster.Spec.TargetNamespace).Get(
+		scope.Ctx, locutil.GenerateRFC1035Name([]string{scope.HarvesterCluster.Namespace, scope.HarvesterCluster.Name, "lb"}), v1.GetOptions{})
+	if err == nil {
+		logger.Info("Waiting for the Load Balancer to be deleted in Harvester")
+
+		return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, errors.Wrap(err, "unable to get the Load Balancer in Harvester")
+	}
+
+	err = releaseLoadBalancerAddress(scope)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	if conditions.IsTrue(scope.HarvesterCluster, infrav1.CustomIPPoolCreatedCondition) {
 		err := scope.HarvesterClient.LoadbalancerV1beta1().IPPools().Delete(
@@ -754,22 +821,6 @@ func (r *HarvesterClusterReconciler) ReconcileDelete(scope *ClusterScope) (ctrl.
 		logger.Info("Custom IP Pool deleted")
 		conditions.Delete(scope.HarvesterCluster, infrav1.CustomIPPoolCreatedCondition)
 	}
-
-	err = scope.HarvesterClient.CoreV1().Services(scope.HarvesterCluster.Spec.TargetNamespace).Delete(
-		scope.Ctx,
-		locutil.GenerateRFC1035Name([]string{scope.HarvesterCluster.Namespace, scope.HarvesterCluster.Name, "lb"}),
-		v1.DeleteOptions{})
-	if err != nil {
-		if !apierrors.IsNotFound(err) {
-			logger.Error(err, "unable to delete Load Balancer Service in Harvester")
-
-			return ctrl.Result{RequeueAfter: requeueTimeLong}, err
-		}
-
-		logger.Info("no Load Balancer Service to be deleted, skipping ...")
-	}
-
-	logger.V(5).Info("Load Balancer Service deleted successfully") //nolint:mnd
 
 	err = scope.HarvesterClient.LoadbalancerV1beta1().IPPools().Delete(
 		scope.Ctx,
@@ -809,6 +860,11 @@ func (r *HarvesterClusterReconciler) ReconcileDelete(scope *ClusterScope) (ctrl.
 		conditions.Delete(scope.HarvesterCluster, infrav1.VMIPPoolCreatedByControllerCondition)
 	} else if scope.HarvesterCluster.Spec.VMNetworkConfig != nil && scope.HarvesterCluster.Spec.VMNetworkConfig.IPPoolRef != "" {
 		logger.Info("Skipping VM IP Pool deletion (pre-existing pool)", "pool", scope.HarvesterCluster.Spec.VMNetworkConfig.IPPoolRef)
+	}
+
+	err = releaseIdentitySecret(scope)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
 	logger.Info("Removing finalizer from HarvesterCluster ...",
@@ -1250,16 +1306,97 @@ func (r *HarvesterClusterReconciler) reconcileVMIPPool(scope *ClusterScope) erro
 	return nil
 }
 
-func (r *HarvesterClusterReconciler) reconcileHarvesterConfig(ctx context.Context, cluster *infrav1.HarvesterCluster) (*rest.Config, error) {
-	logger := log.FromContext(ctx)
+// loadBalancerOwnerID is the owner of the control plane load balancer address in the IP
+// pool: the namespaced name of the Harvester LoadBalancer, which CAPHV also uses to
+// reserve the address of the placeholder Service before the LoadBalancer exists.
+func loadBalancerOwnerID(cluster *infrav1.HarvesterCluster) string {
+	return cluster.Spec.TargetNamespace + "/" + locutil.GenerateRFC1035Name([]string{cluster.Namespace, cluster.Name, "lb"})
+}
 
-	// Set HarvesterConnectionReady condition to in progress
-	conditions.Set(cluster, v1.Condition{
-		Type:    infrav1.HarvesterConnectionReadyCondition,
-		Status:  v1.ConditionFalse,
-		Reason:  "HarvesterConnectionInProgress",
-		Message: "Attempting to connect to Harvester",
-	})
+// releaseLoadBalancerAddress releases the control plane load balancer address that CAPHV
+// reserved in the load balancer IP pool for the placeholder Service. Once the Harvester
+// LoadBalancer exists, its controller reports that reservation as a duplicate, releases
+// it and reserves an address for itself under the same owner, which it releases when it
+// is deleted; when the provisioning failed before the LoadBalancer was created, nothing
+// else releases the reservation. Releasing by owner is a no-op once it is gone.
+func releaseLoadBalancerAddress(scope *ClusterScope) error {
+	poolRef := scope.HarvesterCluster.Spec.LoadBalancerConfig.IpPoolRef
+	if scope.HarvesterCluster.Spec.LoadBalancerConfig.IPAMType != infrav1.POOL || poolRef == "" {
+		return nil
+	}
+
+	pool, err := scope.HarvesterClient.LoadbalancerV1beta1().IPPools().Get(scope.Ctx, poolRef, v1.GetOptions{})
+	if err != nil {
+		return errors.Wrapf(client.IgnoreNotFound(err), "unable to get the load balancer IP pool %s", poolRef)
+	}
+
+	owner := loadBalancerOwnerID(scope.HarvesterCluster)
+	store := locutil.NewStore(pool)
+
+	if len(store.GetByID(owner, "")) == 0 {
+		return nil
+	}
+
+	err = store.ReleaseByID(owner, "")
+	if err != nil {
+		return errors.Wrapf(err, "unable to release the load balancer address of %s", owner)
+	}
+
+	_, err = scope.HarvesterClient.LoadbalancerV1beta1().IPPools().Update(scope.Ctx, pool, v1.UpdateOptions{})
+
+	return errors.Wrapf(err, "unable to update the load balancer IP pool %s", poolRef)
+}
+
+// identitySecretFinalizer returns the finalizer the HarvesterCluster sets on its identity Secret.
+func identitySecretFinalizer(cluster *infrav1.HarvesterCluster) string {
+	return infrav1.IdentitySecretFinalizerPrefix + string(cluster.UID)
+}
+
+// protectIdentitySecret adds the finalizer of the HarvesterCluster to its identity Secret,
+// so that deleting the Secret together with the cluster (kubectl delete -f on the
+// template) does not take it away from the HarvesterCluster and HarvesterMachines still
+// deleting their resources in Harvester.
+func protectIdentitySecret(scope *ClusterScope) error {
+	secret, err := locutil.GetSecretForHarvesterConfig(scope.Ctx, scope.HarvesterCluster, scope.ReconcileClient)
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	// No finalizer can be added to an object being deleted.
+	if !secret.DeletionTimestamp.IsZero() {
+		return nil
+	}
+
+	original := secret.DeepCopy()
+	if !controllerutil.AddFinalizer(secret, identitySecretFinalizer(scope.HarvesterCluster)) {
+		return nil
+	}
+
+	return errors.Wrap(scope.ReconcileClient.Patch(scope.Ctx, secret,
+		client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})), "unable to protect the identity secret")
+}
+
+// releaseIdentitySecret removes the finalizer of the HarvesterCluster from its identity Secret.
+func releaseIdentitySecret(scope *ClusterScope) error {
+	secret, err := locutil.GetSecretForHarvesterConfig(scope.Ctx, scope.HarvesterCluster, scope.ReconcileClient)
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+
+	original := secret.DeepCopy()
+	if !controllerutil.RemoveFinalizer(secret, identitySecretFinalizer(scope.HarvesterCluster)) {
+		return nil
+	}
+
+	return errors.Wrap(scope.ReconcileClient.Patch(scope.Ctx, secret,
+		client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})), "unable to release the identity secret")
+}
+
+// harvesterRESTConfig returns the REST configuration of the identity Secret kubeconfig,
+// reporting failures in the HarvesterConnectionReady condition. Deleting a cluster only
+// needs this connection, not the availability checks of reconcileHarvesterConfig.
+func (r *HarvesterClusterReconciler) harvesterRESTConfig(ctx context.Context, cluster *infrav1.HarvesterCluster) (*rest.Config, error) {
+	logger := log.FromContext(ctx)
 
 	secret, err := locutil.GetSecretForHarvesterConfig(ctx, cluster, r.Client)
 	if (err != nil || secret == &apiv1.Secret{}) {
@@ -1307,6 +1444,27 @@ func (r *HarvesterClusterReconciler) reconcileHarvesterConfig(ctx context.Contex
 			Message: fmt.Sprintf("Failed to create REST config: %v", err),
 		})
 
+		return &rest.Config{}, err
+	}
+
+	return hvRESTConfig, nil
+}
+
+// reconcileHarvesterConfig connects to Harvester with the identity Secret and checks that
+// the Harvester deployment is available.
+func (r *HarvesterClusterReconciler) reconcileHarvesterConfig(ctx context.Context, cluster *infrav1.HarvesterCluster) (*rest.Config, error) {
+	logger := log.FromContext(ctx)
+
+	// Set HarvesterConnectionReady condition to in progress
+	conditions.Set(cluster, v1.Condition{
+		Type:    infrav1.HarvesterConnectionReadyCondition,
+		Status:  v1.ConditionFalse,
+		Reason:  "HarvesterConnectionInProgress",
+		Message: "Attempting to connect to Harvester",
+	})
+
+	hvRESTConfig, err := r.harvesterRESTConfig(ctx, cluster)
+	if err != nil {
 		return &rest.Config{}, err
 	}
 
