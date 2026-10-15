@@ -86,7 +86,12 @@ const (
 	hvAnnotationDiskNames  = "harvesterhci.io/diskNames"
 	hvAnnotationSSH        = "harvesterhci.io/sshNames"
 	hvAnnotationImageID    = "harvesterhci.io/imageId"
-	requeueDelay           = 10 * time.Second
+	// vmAnnotationRemovedPVCs lists, comma separated, the PVCs that the Harvester VM
+	// controller deletes with the VM (util.RemovedPVCsAnnotationKey of
+	// github.com/harvester/harvester, not imported: that package needs modules CAPHV
+	// does not depend on, such as kubevirt.io/kubevirt and longhorn go-common-libs).
+	vmAnnotationRemovedPVCs = "harvesterhci.io/removedPersistentVolumeClaims"
+	requeueDelay            = 10 * time.Second
 )
 
 var (
@@ -1627,26 +1632,37 @@ func (r *HarvesterMachineReconciler) ReconcileDelete(hvScope Scope) (res ctrl.Re
 			return ctrl.Result{Requeue: true}, err
 		}
 
-		// VM is gone — clean up any orphaned PVCs by name prefix
+		// VM is gone: clean up the PVCs it may have left, if it was deleted without
+		// the removedPersistentVolumeClaims annotation.
 		logger.Info("No VM found, cleaning up orphaned PVCs")
-		r.deletePVCsByPrefix(hvScope.Ctx, &hvScope, targetNS, machineName+"-disk-")
+
+		err = r.deletePVCsByPrefix(hvScope.Ctx, &hvScope, targetNS, machineName+"-disk-")
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	} else {
 		logger.V(5).Info("found VM: " + vm.Namespace + "/" + vm.Name)
 
-		if (vm != &kubevirtv1.VirtualMachine{}) {
-			// Delete VM first
-			err = hvScope.HarvesterClient.KubevirtV1().VirtualMachines(targetNS).Delete(
-				hvScope.Ctx, machineName, metav1.DeleteOptions{})
-			if err != nil && !apierrors.IsNotFound(err) {
-				logger.Error(err, "unable to delete VM, error was different than NotFound")
-
-				return ctrl.Result{Requeue: true}, err
-			}
-
-			logger.Info("VM delete requested, requeuing to wait for termination before PVC cleanup")
-
-			return ctrl.Result{RequeueAfter: requeueDelay}, nil
+		// Harvester creates the VM PVCs without owner reference and deletes them with
+		// the VM only when they are listed in the removedPersistentVolumeClaims
+		// annotation, as its API, the Rancher node driver and the Terraform provider do
+		// before deleting a VM.
+		err = markVolumesForRemoval(&hvScope, vm)
+		if err != nil {
+			return ctrl.Result{}, err
 		}
+
+		err = hvScope.HarvesterClient.KubevirtV1().VirtualMachines(targetNS).Delete(
+			hvScope.Ctx, machineName, metav1.DeleteOptions{PropagationPolicy: ptr.To(metav1.DeletePropagationForeground)})
+		if err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "unable to delete VM, error was different than NotFound")
+
+			return ctrl.Result{Requeue: true}, err
+		}
+
+		logger.Info("VM delete requested, requeuing to wait for termination before PVC cleanup")
+
+		return ctrl.Result{RequeueAfter: requeueDelay}, nil
 	}
 
 	// Remove both new and legacy finalizers to handle objects from before the migration.
@@ -1662,17 +1678,46 @@ func (r *HarvesterMachineReconciler) ReconcileDelete(hvScope Scope) (res ctrl.Re
 	return ctrl.Result{}, nil
 }
 
-// deletePVCsByPrefix lists all PVCs in the namespace and deletes those whose name
-// starts with the given prefix. This handles orphaned PVCs left behind when VM
-// deletion completes before PVC cleanup.
-func (r *HarvesterMachineReconciler) deletePVCsByPrefix(ctx context.Context, hvScope *Scope, namespace, prefix string) {
-	logger := hvScope.Logger
+// markVolumesForRemoval lists the PVCs of the VM in its removedPersistentVolumeClaims
+// annotation, so that the Harvester VM controller deletes them with the VM.
+// Hotplugged volumes are not part of the machine and are left alone, as the Rancher
+// node driver does.
+func markVolumesForRemoval(hvScope *Scope, vm *kubevirtv1.VirtualMachine) error {
+	claims := []string{}
 
+	if vm.Spec.Template != nil {
+		for _, volume := range vm.Spec.Template.Spec.Volumes {
+			if volume.PersistentVolumeClaim != nil && !volume.PersistentVolumeClaim.Hotpluggable {
+				claims = append(claims, volume.PersistentVolumeClaim.ClaimName)
+			}
+		}
+	}
+
+	removed := strings.Join(claims, ",")
+	if vm.Annotations[vmAnnotationRemovedPVCs] == removed {
+		return nil
+	}
+
+	patch, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{"annotations": map[string]string{vmAnnotationRemovedPVCs: removed}},
+	})
+	if err != nil {
+		return errors.Wrap(err, "unable to build the removed PVCs annotation patch")
+	}
+
+	_, err = hvScope.HarvesterClient.KubevirtV1().VirtualMachines(vm.Namespace).Patch(
+		hvScope.Ctx, vm.Name, types.MergePatchType, patch, metav1.PatchOptions{})
+
+	return errors.Wrapf(client.IgnoreNotFound(err), "unable to mark the PVCs of VM %s/%s for removal", vm.Namespace, vm.Name)
+}
+
+// deletePVCsByPrefix lists all PVCs in the namespace and deletes those whose name
+// starts with the given prefix. This handles PVCs left behind by a VM deleted without
+// the removedPersistentVolumeClaims annotation.
+func (r *HarvesterMachineReconciler) deletePVCsByPrefix(ctx context.Context, hvScope *Scope, namespace, prefix string) error {
 	pvcList, err := hvScope.HarvesterClient.CoreV1().PersistentVolumeClaims(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		logger.Info("Warning: failed to list PVCs for cleanup", "error", err)
-
-		return
+		return errors.Wrap(err, "unable to list PVCs for cleanup")
 	}
 
 	for i := range pvcList.Items {
@@ -1683,11 +1728,11 @@ func (r *HarvesterMachineReconciler) deletePVCsByPrefix(ctx context.Context, hvS
 
 		err = hvScope.HarvesterClient.CoreV1().PersistentVolumeClaims(namespace).Delete(ctx, pvc.Name, metav1.DeleteOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
-			logger.Info("Warning: failed to delete orphaned PVC", "pvc", pvc.Name, "error", err)
-
-			continue
+			return errors.Wrapf(err, "unable to delete orphaned PVC %s/%s", namespace, pvc.Name)
 		}
 
-		logger.Info("Deleted orphaned PVC", "pvc", pvc.Name)
+		hvScope.Logger.Info("Deleted orphaned PVC", "pvc", pvc.Name)
 	}
+
+	return nil
 }
