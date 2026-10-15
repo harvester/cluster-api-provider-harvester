@@ -664,8 +664,9 @@ CAPHV v0.2.0+ solves this by setting the providerID and removing the taint direc
 2. If you cannot upgrade, manually fix the node:
    ```bash
    # On workload cluster
-   # Set providerID (use the Harvester VM's name as the ID)
-   kubectl patch node <node-name> --type=merge -p '{"spec":{"providerID":"harvester://<vm-name>"}}'
+   # Set providerID: the Harvester cloud provider format is harvester://<VM UID>
+   # (on Harvester: kubectl get vm <vm-name> -n <namespace> -o jsonpath='{.metadata.uid}')
+   kubectl patch node <node-name> --type=merge -p '{"spec":{"providerID":"harvester://<vm-uid>"}}'
 
    # Remove the taint
    kubectl taint nodes <node-name> node.cloudprovider.kubernetes.io/uninitialized-
@@ -676,6 +677,38 @@ CAPHV v0.2.0+ solves this by setting the providerID and removing the taint direc
    - `replicas: 1` (hostNetwork prevents port binding conflicts with multiple replicas).
 
 ---
+
+
+### Machine Never Matches Its Node (`NodeProviderIDMatches=False`)
+
+**Symptoms:**
+- The Machine stays in `Provisioned`, its Node is Ready in the workload cluster.
+- The HarvesterMachine has the condition `NodeProviderIDMatches=False`, reason
+  `NodeProviderIDMismatch`, with a message such as
+  `node <name> has provider ID rke2://<name> instead of harvester://<uid>`.
+
+**Cause:**
+Cluster API matches a Machine to its Node by provider ID, and the provider ID
+of a Node cannot be changed once set. With `cloudProviderName: external`, RKE2
+keeps its embedded cloud controller unless it is disabled, and that controller
+sets `rke2://<node name>` on nodes before the Harvester cloud provider or CAPHV
+can set `harvester://<VM UID>`. The RKE2 documentation asks to disable the
+embedded cloud controller when an external one is used.
+
+**Fix:**
+Disable the embedded cloud controller in the control plane configuration (the
+templates shipped with CAPHV do):
+
+```yaml
+serverConfig:
+  cloudProviderName: external
+  disableComponents:
+    kubernetesComponents:
+    - cloudController
+```
+
+Machines whose Node already carries a wrong provider ID cannot recover: delete
+them so that they are replaced with the corrected configuration.
 
 ### Node Has Uninitialized Taint
 

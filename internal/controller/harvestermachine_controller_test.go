@@ -1106,11 +1106,11 @@ var _ = Describe("initializeWorkloadNode", func() {
 })
 
 // =============================================================================
-// Tests for getProviderIDFromWorkloadCluster error paths
+// Tests for claimWorkloadNodeProviderID error paths
 // =============================================================================
 
-var _ = Describe("getProviderIDFromWorkloadCluster", func() {
-	It("should return error when workload cluster kubeconfig secret is missing", func() {
+var _ = Describe("claimWorkloadNodeProviderID", func() {
+	It("should claim nothing while the workload cluster kubeconfig secret is missing", func() {
 		scheme := runtime.NewScheme()
 		_ = corev1.AddToScheme(scheme)
 		_ = infrav1.AddToScheme(scheme)
@@ -1130,9 +1130,10 @@ var _ = Describe("getProviderIDFromWorkloadCluster", func() {
 			},
 		}
 
-		_, err := getProviderIDFromWorkloadCluster(scope)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("unable to get workload cluster config"))
+		// No workload kubeconfig yet: the node cannot exist, nothing to claim.
+		providerID, err := claimWorkloadNodeProviderID(scope, "harvester://vm-uid")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(providerID).To(BeEmpty())
 	})
 })
 

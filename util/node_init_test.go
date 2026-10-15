@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -215,8 +216,27 @@ var _ = Describe("InitializeWorkloadNode with fake API server", func() {
 		defer server.Close()
 
 		logger := logr.Discard()
-		// No taint, providerID already set - should be a no-op reported as initialized
-		Expect(InitializeWorkloadNode(context.Background(), logger, config, "already-initialized", "harvester://new-id")).To(BeTrue())
+		// The provider ID of a node cannot change once set: a different one can never
+		// match the machine, which must be reported instead of treated as initialized.
+		initialized, err := InitializeWorkloadNode(context.Background(), logger, config, "already-initialized", "harvester://new-id")
+		Expect(initialized).To(BeFalse())
+
+		var mismatch *ProviderIDMismatchError
+		Expect(errors.As(err, &mismatch)).To(BeTrue())
+		Expect(mismatch.NodeProviderID).To(Equal("harvester://existing-id"))
+	})
+
+	It("should report a node that already carries the machine provider ID as initialized", func() {
+		node := &v1.Node{
+			TypeMeta:   metav1.TypeMeta{Kind: "Node", APIVersion: "v1"},
+			ObjectMeta: metav1.ObjectMeta{Name: "initialized"},
+			Spec:       v1.NodeSpec{ProviderID: "harvester://same-id"},
+		}
+
+		server, config := fakeNodeServer(node)
+		defer server.Close()
+
+		Expect(InitializeWorkloadNode(context.Background(), logr.Discard(), config, "initialized", "harvester://same-id")).To(BeTrue())
 	})
 
 	It("should handle node not found (not registered yet)", func() {
@@ -275,7 +295,7 @@ var _ = Describe("InitializeWorkloadNode with fake API server", func() {
 		defer server.Close()
 
 		logger := logr.Discard()
-		InitializeWorkloadNode(context.Background(), logger, config, "needs-taint-only", "harvester://already-set")
+		Expect(InitializeWorkloadNode(context.Background(), logger, config, "needs-taint-only", "harvester://already-set")).To(BeTrue())
 	})
 
 	It("should handle API errors gracefully on a non-404 error", func() {
@@ -288,8 +308,8 @@ var _ = Describe("InitializeWorkloadNode with fake API server", func() {
 
 		config := &rest.Config{Host: server.URL}
 		logger := logr.Discard()
-		// Should handle the 500 error gracefully (log warning, return)
-		InitializeWorkloadNode(context.Background(), logger, config, "test-node", "harvester://pid")
+		// A server error is reported as not initialized, so the caller retries
+		Expect(InitializeWorkloadNode(context.Background(), logger, config, "test-node", "harvester://pid")).To(BeFalse())
 	})
 
 	It("should handle patch failure for providerID", func() {
@@ -329,7 +349,43 @@ var _ = Describe("InitializeWorkloadNode with fake API server", func() {
 
 		config := &rest.Config{Host: server.URL}
 		logger := logr.Discard()
-		InitializeWorkloadNode(context.Background(), logger, config, "patch-fail-node", "harvester://pid")
+		Expect(InitializeWorkloadNode(context.Background(), logger, config, "patch-fail-node", "harvester://pid")).To(BeFalse())
 		Expect(patchCount).To(Equal(1)) // Only providerID patch attempted, then returned on error
+	})
+
+	It("should adopt the provider ID another component set while the claim was in flight", func() {
+		// The node has no provider ID when read, a cloud controller sets one before the
+		// patch lands, and the API server rejects the patch: the node value is adopted.
+		var mu sync.Mutex
+
+		providerID := ""
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+
+			if r.Method == http.MethodPatch {
+				providerID = "rke2://racing-node"
+
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"Invalid","code":422}`))
+
+				return
+			}
+
+			node := v1.Node{
+				TypeMeta:   metav1.TypeMeta{Kind: "Node", APIVersion: "v1"},
+				ObjectMeta: metav1.ObjectMeta{Name: "racing-node"},
+				Spec:       v1.NodeSpec{ProviderID: providerID},
+			}
+			_ = json.NewEncoder(w).Encode(node) //nolint:errchkjson // test helper
+		}))
+		defer server.Close()
+
+		claimed, err := ClaimNodeProviderID(context.Background(), &rest.Config{Host: server.URL}, "racing-node", "harvester://vm-uid")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(claimed).To(Equal("rke2://racing-node"))
 	})
 })
