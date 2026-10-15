@@ -18,9 +18,16 @@ All notable changes to this project are documented in this file.
   reads `status.initialization.provisioned` of a HarvesterMachine. The end
   of a successful reconcile set `status.ready` without it, leaving machines
   with `ready: true` and an empty `initialization` forever. The field is now
-  mirrored from `status.ready` where the status is patched, as the
-  HarvesterCluster already did; existing stuck machines recover on their next
-  reconcile.
+  set from `status.ready` where the status is patched; existing stuck machines
+  recover on their next reconcile.
+- **`initialization.provisioned` no longer goes back to false**: it followed
+  `status.ready`, so a machine or cluster that lost its readiness (a guest IP
+  missing for a while, a VM restarted) reported itself as not provisioned
+  again. The v1beta2 contract only uses it for the initial provisioning and
+  Cluster API latches it, so it is now set once `status.ready` is true and
+  never cleared, as CAPK and CAPV do; `status.ready` still follows the current
+  state. The reconcile that creates a VM no longer reports the machine ready
+  (and therefore provisioned) before the VM runs and has an address.
 - **`caphv-generate` emits the `v1beta1` API**: the generator still wrote the
   HarvesterClusterTemplate, the HarvesterMachineTemplates and every ClusterClass
   reference and patch selector at the deprecated `v1alpha1`. Templates created
