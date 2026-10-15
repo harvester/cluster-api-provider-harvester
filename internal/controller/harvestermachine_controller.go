@@ -956,8 +956,6 @@ runcmd:
 		Data: secretData,
 	}
 
-	hvScope.Logger.V(5).Info("cloud-init final value is " + string(finalCloudInit)) //nolint:mnd
-
 	// check if secret already exists
 	_, err = hvScope.HarvesterClient.CoreV1().Secrets(hvScope.HarvesterCluster.Spec.TargetNamespace).Get(
 		hvScope.Ctx, hvScope.HarvesterMachine.Name+"-cloud-init", metav1.GetOptions{})

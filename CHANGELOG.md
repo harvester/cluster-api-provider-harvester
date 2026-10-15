@@ -35,6 +35,14 @@ All notable changes to this project are documented in this file.
   template cloning. The field is now omitted when empty, as in the CAPI types.
   Templates already stored with the empty object keep it until they are
   recreated.
+### Security
+
+- **Bootstrap data no longer logged**: at verbosity 5, the HarvesterMachine
+  controller logged the whole cloud-init user data, which includes the
+  credentials a node joins the cluster with (RKE2 or kubeadm token). The log
+  line is removed: bootstrap data never reaches the logs, as the Cluster API
+  provider security guidelines and the Kubernetes secrets good practices ask.
+- Test fixtures no longer carry credential-looking Rancher tokens.
 
 ## [v0.10.1] - 2026-07-28
 
