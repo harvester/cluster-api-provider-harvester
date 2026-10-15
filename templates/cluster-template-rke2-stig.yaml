@@ -99,6 +99,9 @@ spec:
   serverConfig:
     cni: calico
     cloudProviderName: external
+    disableComponents:
+      kubernetesComponents:
+      - cloudController
     auditPolicySecret:
       name: ${CLUSTER_NAME}-audit-policy
       namespace: ${NAMESPACE}

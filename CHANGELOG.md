@@ -35,6 +35,17 @@ All notable changes to this project are documented in this file.
   template cloning. The field is now omitted when empty, as in the CAPI types.
   Templates already stored with the empty object keep it until they are
   recreated.
+- **RKE2 embedded cloud controller competing with the Harvester cloud
+  provider**: the templates set `cloudProviderName: external` without disabling
+  the RKE2 embedded cloud controller, which sets `rke2://` provider IDs. All the
+  templates, the Helm chart ClusterClass and `caphv-generate` now disable it, as
+  the RKE2 documentation requires with an external cloud provider and as the
+  DHCP template already did. Upgrade note: a cluster created from an older
+  template keeps the embedded cloud controller until its control plane
+  configuration is changed, and changing it rolls the control plane machines;
+  ClusterClasses pick it up through template rotation, the way Cluster API
+  recommends changing ClusterClass templates (create a new
+  RKE2ControlPlaneTemplate, point the ClusterClass to it, delete the old one).
 
 ## [v0.10.1] - 2026-07-28
 
