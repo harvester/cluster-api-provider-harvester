@@ -98,7 +98,7 @@ var _ = Describe("HarvesterMachine provisioned when the guest IP disappears for 
 		pass := func() {
 			_, err := r.ReconcileNormal(scope)
 			Expect(err).ToNot(HaveOccurred())
-			syncInitializationWithReady(scope.HarvesterMachine)
+			markProvisionedOnceReady(scope.HarvesterMachine.Status.Ready, &scope.HarvesterMachine.Status.Initialization)
 		}
 
 		setGuestIP := func(ip string) {
@@ -115,6 +115,8 @@ var _ = Describe("HarvesterMachine provisioned when the guest IP disappears for 
 		setGuestIP("")
 		pass() // ready -> not ready
 		Expect(scope.HarvesterMachine.Status.Ready).To(BeFalse())
+		Expect(scope.HarvesterMachine.Status.Initialization.Provisioned).To(BeTrue(),
+			"provisioned is set once and never cleared")
 		pass() // still no address, provider ID set: the end of ReconcileNormal sets ready again
 
 		setGuestIP("172.16.3.42")
