@@ -56,13 +56,10 @@ spec:
       #             operator: In
       #             values:
       #               - linux
-        # TODO(user): For common cases that do not require escalating privileges
-        # it is recommended to ensure that all your Pods/Containers are restrictive.
-        # More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-        # Please uncomment the following code if your project does NOT have to work on old Kubernetes
-        # versions < 1.19 or on vendors versions which do NOT support this field by default (i.e. Openshift < 4.11 ).
-        # seccompProfile:
-        #   type: RuntimeDefault
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - command:
         - /manager
@@ -71,10 +68,10 @@ spec:
         image: controller:latest
         name: manager
         securityContext:
-          # Privileged required: the controller manages VMs and network resources
-          # on the Harvester cluster via the KubeVirt and load-balancer APIs, which
-          # require elevated permissions for cross-cluster operations.
-          privileged: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         env:
         - name: POD_NAMESPACE
           valueFrom:
