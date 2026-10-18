@@ -928,11 +928,21 @@ runcmd:
 		cloudInitDHCP = buildDHCPCloudInit(hvScope)
 	}
 
-	finalCloudInit, err := locutil.MergeCloudInitData(cloudInitBase, cloudInitSSHSection, cloudInitDHCP, cloudInitUserData)
-	if err != nil {
-		err = fmt.Errorf("error during merging cloud init user data from Harvester: %w", err)
+	var finalCloudInit []byte
 
-		return nil, err
+	if locutil.IsTalosMachineConfig(cloudInitUserData) {
+		// Talos ignores user-data that starts with #cloud-config and stays in maintenance
+		// mode, so its machine config is passed through unchanged.
+		hvScope.Logger.V(3).Info("Bootstrap data is a Talos machine config, passing it through unchanged") //nolint:mnd
+
+		finalCloudInit = []byte(cloudInitUserData)
+	} else {
+		finalCloudInit, err = locutil.MergeCloudInitData(cloudInitBase, cloudInitSSHSection, cloudInitDHCP, cloudInitUserData)
+		if err != nil {
+			err = fmt.Errorf("error during merging cloud init user data from Harvester: %w", err)
+
+			return nil, err
+		}
 	}
 
 	// Build cloud-init secret data with lowercase keys (required by KubeVirt)
