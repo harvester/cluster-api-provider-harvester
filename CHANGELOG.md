@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **VMs restarted instead of migrated during Harvester maintenance**: the VMs
+  had no eviction strategy, so draining a Harvester host (maintenance mode,
+  upgrade) shut them down and restarted them on another host, without draining
+  the guest node first. They now set `evictionStrategy: LiveMigrateIfPossible`,
+  as the Rancher node driver does.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to

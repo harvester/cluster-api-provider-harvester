@@ -1072,6 +1072,9 @@ runcmd:
 			Hostname: hvScope.HarvesterMachine.Name,
 			Networks: getKubevirtNetworksFromHarvesterMachine(hvScope.HarvesterMachine),
 			Volumes:  volumes,
+			// Live migrate the VM when its node is drained (maintenance mode, Harvester upgrade),
+			// as the Rancher node driver does, instead of restarting it on another node.
+			EvictionStrategy: ptr.To(kubevirtv1.EvictionStrategyLiveMigrateIfPossible),
 			Domain: kubevirtv1.DomainSpec{
 				CPU: &kubevirtv1.CPU{
 					Cores:   hvScope.HarvesterMachine.Spec.CPU,
