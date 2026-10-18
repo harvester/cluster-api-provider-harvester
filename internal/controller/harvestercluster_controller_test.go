@@ -2609,6 +2609,45 @@ var _ = Describe("getIPFromIPPool", func() {
 		Expect(err.Error()).To(ContainSubstring("does not have available addresses"))
 	})
 
+	It("should return the address the load balancer already holds, even from a full pool", func() {
+		// A previous pass reserved the address, then failed before creating the Service.
+		hvFake := hvfake.NewSimpleClientset()
+
+		_, err := hvFake.LoadbalancerV1beta1().IPPools().Create(context.TODO(), &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "held-pool"},
+			Spec: lbv1beta1.IPPoolSpec{
+				Ranges: []lbv1beta1.Range{
+					{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", RangeStart: "10.0.0.10", RangeEnd: "10.0.0.10"},
+				},
+			},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"10.0.0.10": "default/test-lb"},
+				Available: 0,
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		scope := &ClusterScope{
+			Ctx:    context.TODO(),
+			Logger: log.FromContext(context.TODO()),
+			HarvesterCluster: &infrav1.HarvesterCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+				Spec: infrav1.HarvesterClusterSpec{
+					TargetNamespace: "default",
+					LoadBalancerConfig: infrav1.LoadBalancerConfig{
+						IPAMType:  infrav1.POOL,
+						IpPoolRef: "held-pool",
+					},
+				},
+			},
+			HarvesterClient: hvFake,
+		}
+
+		ip, err := getIPFromIPPool(scope, "default/test-lb")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ip).To(Equal("10.0.0.10"))
+	})
+
 	It("should allocate an IP from a pool with available addresses", func() {
 		hvFake := hvfake.NewSimpleClientset()
 
@@ -2726,6 +2765,39 @@ var _ = Describe("allocateIPFromPool", func() {
 		ip, err := allocateIPFromPool(pool, "default/my-lb", scope)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ip).To(Equal("10.0.0.15"))
+	})
+
+	It("should allocate a free address when the one in the history was given to another owner", func() {
+		// An entry left in the history by a provider version that did not remove the
+		// reserved address from it.
+		hvFake := hvfake.NewSimpleClientset()
+
+		pool := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "stale-history-pool"},
+			Spec: lbv1beta1.IPPoolSpec{
+				Ranges: []lbv1beta1.Range{
+					{Subnet: "10.0.0.0/24", Gateway: "10.0.0.1", RangeStart: "10.0.0.10", RangeEnd: "10.0.0.20"},
+				},
+			},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated:        map[string]string{"10.0.0.15": "ns/other-machine"},
+				AllocatedHistory: map[string]string{"10.0.0.15": "default/my-lb"},
+				Available:        10,
+			},
+		}
+
+		_, err := hvFake.LoadbalancerV1beta1().IPPools().Create(context.TODO(), pool, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		scope := &ClusterScope{
+			Ctx:             context.TODO(),
+			Logger:          log.FromContext(context.TODO()),
+			HarvesterClient: hvFake,
+		}
+
+		ip, err := allocateIPFromPool(pool, "default/my-lb", scope)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ip).To(Equal("10.0.0.10"))
 	})
 
 	It("should allocate different IPs for different LBs", func() {
