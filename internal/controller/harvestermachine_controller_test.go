@@ -31,9 +31,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/utils/ptr"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -1565,6 +1567,61 @@ var _ = Describe("createVMFromHarvesterMachine", func() {
 		createdVM, err := hvClient.KubevirtV1().VirtualMachines("default").Get(context.TODO(), "test-cp-0", metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(createdVM.Name).To(Equal("test-cp-0"))
+	})
+
+	It("should not create the VM when the cloud-init Secret cannot be read", func() {
+		sshKeyPair := &harvesterv1beta1.KeyPair{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-ssh-key", Namespace: "default"},
+			Spec:       harvesterv1beta1.KeyPairSpec{PublicKey: "ssh-rsa test"},
+		}
+		hvClient := hvfake.NewSimpleClientset(sshKeyPair)
+		// A transient error from the Harvester API: the VM would reference a
+		// cloud-init Secret that is never created.
+		hvClient.PrependReactor("get", "secrets", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, apierrors.NewServiceUnavailable("etcd leader changed")
+		})
+
+		scheme := runtime.NewScheme()
+		_ = corev1.AddToScheme(scheme)
+		dataSecretName := testBootstrapDataSecretName
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: dataSecretName, Namespace: "test-ns"},
+			Data:       map[string][]byte{"value": []byte("runcmd:\n  - echo hello\n")},
+		}).Build()
+		logger := log.FromContext(context.TODO())
+
+		size := resource.MustParse("40Gi")
+		scope := &Scope{
+			Ctx:     context.TODO(),
+			Cluster: &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "test-cluster"}},
+			Machine: &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
+				Spec:       clusterv1.MachineSpec{Bootstrap: clusterv1.Bootstrap{DataSecretName: &dataSecretName}},
+			},
+			HarvesterMachine: &infrav1.HarvesterMachine{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0"},
+				Spec: infrav1.HarvesterMachineSpec{
+					CPU: 4, Memory: "8Gi",
+					SSHKeyPair: "default/capi-ssh-key",
+					Networks:   []string{"default/production"},
+					Volumes: []infrav1.Volume{
+						{VolumeType: "storageClass", StorageClass: "longhorn", VolumeSize: &size, BootOrder: 1},
+					},
+				},
+			},
+			HarvesterCluster: &infrav1.HarvesterCluster{
+				Spec: infrav1.HarvesterClusterSpec{TargetNamespace: "default"},
+			},
+			HarvesterClient:  hvClient,
+			ReconcilerClient: fakeClient,
+			Logger:           &logger,
+		}
+
+		_, err := createVMFromHarvesterMachine(scope)
+		Expect(err).To(MatchError(ContainSubstring("etcd leader changed")))
+
+		_, err = hvClient.KubevirtV1().VirtualMachines("default").Get(context.TODO(), "test-cp-0", metav1.GetOptions{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "no VM is created without its cloud-init Secret")
 	})
 
 	It("should add control-plane label when machine has CP label", func() {

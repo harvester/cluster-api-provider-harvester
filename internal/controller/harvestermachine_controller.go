@@ -963,13 +963,13 @@ runcmd:
 		hvScope.Ctx, hvScope.HarvesterMachine.Name+"-cloud-init", metav1.GetOptions{})
 	if err != nil {
 		if !apierrors.IsNotFound(err) {
-			hvScope.Logger.V(3).Info("unable to get cloud-init secret, error was different than NotFound")
-		} else {
-			_, err = hvScope.HarvesterClient.CoreV1().Secrets(hvScope.HarvesterCluster.Spec.TargetNamespace).Create(
-				hvScope.Ctx, cloudInitSecret, metav1.CreateOptions{})
-			if err != nil {
-				return nil, errors.Wrap(err, "unable to create cloud-init secret")
-			}
+			return nil, errors.Wrap(err, "unable to get cloud-init secret")
+		}
+
+		_, err = hvScope.HarvesterClient.CoreV1().Secrets(hvScope.HarvesterCluster.Spec.TargetNamespace).Create(
+			hvScope.Ctx, cloudInitSecret, metav1.CreateOptions{})
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to create cloud-init secret")
 		}
 	} else {
 		_, err = hvScope.HarvesterClient.CoreV1().Secrets(hvScope.HarvesterCluster.Spec.TargetNamespace).Update(

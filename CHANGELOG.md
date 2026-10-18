@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **VM created without its cloud-init Secret**: an error other than NotFound
+  when reading the cloud-init Secret on Harvester (API unavailable, timeout)
+  was only logged at a debug level, and the VM was created anyway, referencing
+  a Secret that nothing created afterwards. The error is now returned and the
+  creation retried.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to
