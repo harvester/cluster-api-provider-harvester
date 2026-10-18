@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Cloud provider Deployment replaced in the kubeadm manifests**: when the
+  cloud-config Secret was not the first object of the manifest referenced by
+  `updateCloudProviderConfig` (it is the last one in the kubeadm template), the
+  provider wrote the Secret over the object at its position among the Secrets,
+  which is the Deployment, and left the original Secret unchanged. The Secret
+  is now replaced in place.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to
