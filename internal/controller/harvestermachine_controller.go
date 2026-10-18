@@ -1289,13 +1289,13 @@ func buildAffinity(hvScope *Scope) *v1.Affinity {
 		},
 	}
 
-	// Merge user-specified NodeAffinity
+	// Merge user-specified NodeAffinity (a copy, so that the failure domain constraint
+	// added below is not written back into the HarvesterMachine spec)
 	if hvScope.HarvesterMachine.Spec.NodeAffinity != nil {
-		affinity.NodeAffinity = hvScope.HarvesterMachine.Spec.NodeAffinity
+		affinity.NodeAffinity = hvScope.HarvesterMachine.Spec.NodeAffinity.DeepCopy()
 	}
 
-	// Pin the VM to its failure domain (appended to every user term so the
-	// user constraints stay AND-ed with the domain one)
+	// Place the VM in its failure domain
 	if failureDomain := effectiveFailureDomain(hvScope); failureDomain != "" {
 		key, value := failureDomainNodeSelector(hvScope.HarvesterCluster, failureDomain)
 		requirement := v1.NodeSelectorRequirement{Key: key, Operator: v1.NodeSelectorOpIn, Values: []string{value}}
@@ -1304,15 +1304,28 @@ func buildAffinity(hvScope *Scope) *v1.Affinity {
 			affinity.NodeAffinity = &v1.NodeAffinity{}
 		}
 
-		if affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
-			affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &v1.NodeSelector{
-				NodeSelectorTerms: []v1.NodeSelectorTerm{{}},
+		if key == hostnameTopologyLabel {
+			// A domain per host is only preferred: a VM required to run on a single host
+			// cannot be migrated, and Harvester refuses maintenance mode for that host.
+			affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution = append(
+				affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution,
+				v1.PreferredSchedulingTerm{
+					Weight:     hostFailureDomainWeight,
+					Preference: v1.NodeSelectorTerm{MatchExpressions: []v1.NodeSelectorRequirement{requirement}},
+				})
+		} else {
+			// A zone is required, appended to every user term so that the user
+			// constraints stay AND-ed with the domain one
+			if affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+				affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &v1.NodeSelector{
+					NodeSelectorTerms: []v1.NodeSelectorTerm{{}},
+				}
 			}
-		}
 
-		terms := affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-		for i := range terms {
-			terms[i].MatchExpressions = append(terms[i].MatchExpressions, requirement)
+			terms := affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+			for i := range terms {
+				terms[i].MatchExpressions = append(terms[i].MatchExpressions, requirement)
+			}
 		}
 	}
 

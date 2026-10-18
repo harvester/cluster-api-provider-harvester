@@ -1108,10 +1108,13 @@ publishes them in `HarvesterCluster.status.failureDomains`: one domain per
 `topology.kubernetes.io/zone` value when every Harvester host carries the
 label, otherwise one domain per host. CAPI aggregates them on the `Cluster`
 object, the control plane provider spreads control plane machines across them,
-and CAPHV pins each VM to its assigned domain with a required node affinity
-(combined with any user provided `nodeAffinity`). This is what the BSI
-APP.4.4.A19 elevated-protection requirement (control plane distributed across
-failure zones) builds on.
+and CAPHV places each VM in its assigned domain with a node affinity combined
+with any user provided `nodeAffinity`: required for a zone, which is what the
+BSI APP.4.4.A19 elevated-protection requirement (control plane distributed
+across failure zones) builds on, and only preferred for a host. A VM required
+to run on a single host could not be migrated, and Harvester refuses the
+maintenance mode of that host ("Non-migratable VMs found ...
+NodeSchedulingRequirementsNotMet").
 
 Nothing needs to be configured: label the Harvester hosts with
 `topology.kubernetes.io/zone` to group them into zones, or leave them

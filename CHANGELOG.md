@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Harvester maintenance refused for hosts running a control plane VM**: with
+  one failure domain per host (hosts without a `topology.kubernetes.io/zone`
+  label), each control plane VM was required to run on its host, so it could
+  not be migrated and Harvester refused the maintenance mode of that host. The
+  host is now only preferred; zones stay required. The failure domain
+  constraint is also no longer written back into the HarvesterMachine
+  `nodeAffinity` on every creation attempt.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to
