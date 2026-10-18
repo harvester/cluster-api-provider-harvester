@@ -728,6 +728,25 @@ The CAPHV controller reads IP addresses from the VMI's `status.interfaces` field
 
 ---
 
+### VM Deleted From Harvester
+
+**Symptoms:**
+- The VM of a running machine was deleted on Harvester (UI, `kubectl delete vm`).
+- The HarvesterMachine is not ready and its condition `MachineCreated` is `False` with reason `MachineNotFound`.
+- Controller logs show: `The VM of this provisioned machine no longer exists in Harvester, not recreating it`.
+
+**Cause:**
+The machine provider ID is the UID of its VM (`harvester://<vm-uid>`), and the Machine and the workload cluster node keep it. A new VM would get another UID, so CAPHV does not recreate the VM of a machine whose provider ID is set: the machine has to be replaced.
+
+**Fix:**
+1. With a MachineHealthCheck, the node of the deleted VM turns `NotReady` and the Machine is replaced after the configured timeout.
+2. Without one, delete the Machine; its MachineDeployment or control plane creates a replacement:
+   ```bash
+   kubectl delete machine <machine-name> -n <ns>
+   ```
+
+---
+
 ## etcd Issues
 
 ### Stale etcd Member After Control Plane Machine Deletion
