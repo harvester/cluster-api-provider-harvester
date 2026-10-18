@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **`VMRunning` condition never set**: the HarvesterMachine condition was
+  declared but never posted, so nothing told why a machine was not ready. It
+  now follows the VM state: false with that state in its message (`Stopped`,
+  `ErrorUnschedulable`, `Starting`), true while the VM runs.
 - **Stopped VM reported ready (regression since v0.10.1)**: when the VM of a
   ready machine was stopped, from the Harvester UI or by Harvester when the
   namespace resource quota is exceeded, the machine kept `ready: true`. v0.10.1

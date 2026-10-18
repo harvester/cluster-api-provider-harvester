@@ -412,6 +412,23 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 			Message: "VM already exists and is provisioned",
 		})
 
+		// The VM state, not its run strategy: a VM meant to run can be unschedulable.
+		vmRunning := metav1.Condition{
+			Type:   infrav1.VMRunningCondition,
+			Status: metav1.ConditionTrue,
+			Reason: infrav1.VMRunningReason,
+		}
+		if existingVM.Status.PrintableStatus != kubevirtv1.VirtualMachineStatusRunning {
+			vmRunning = metav1.Condition{
+				Type:    infrav1.VMRunningCondition,
+				Status:  metav1.ConditionFalse,
+				Reason:  infrav1.VMNotRunningReason,
+				Message: fmt.Sprintf("VM is %s", existingVM.Status.PrintableStatus),
+			}
+		}
+
+		conditions.Set(hvScope.HarvesterMachine, vmRunning)
+
 		if isVMRunning(existingVM) {
 			ipAddresses, err := getIPAddressesFromVMI(hvScope.Ctx, existingVM, hvScope.HarvesterClient)
 			if err != nil {
