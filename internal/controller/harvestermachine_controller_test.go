@@ -2499,6 +2499,86 @@ var _ = Describe("ReconcileNormal", func() {
 		Expect(scope.HarvesterMachine.Status.Ready).To(BeFalse())
 	})
 
+	It("should report a ready machine whose VM was stopped as not ready", func() {
+		scheme := runtime.NewScheme()
+		_ = corev1.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+		_ = clusterv1.AddToScheme(scheme)
+
+		dataSecretName := testBootstrapDataSecretName
+		bootstrapSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: dataSecretName, Namespace: "test-ns"},
+			Data:       map[string][]byte{"value": []byte("")},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(bootstrapSecret).Build()
+
+		// Stopped from the Harvester UI, or by Harvester when the namespace quota is exceeded.
+		strategy := kubevirtv1.RunStrategyHalted
+		existingVM := &kubevirtv1.VirtualMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "default"},
+			Spec:       kubevirtv1.VirtualMachineSpec{RunStrategy: &strategy},
+			Status:     kubevirtv1.VirtualMachineStatus{PrintableStatus: kubevirtv1.VirtualMachineStatusStopped},
+		}
+		hvClient := hvfake.NewSimpleClientset(existingVM)
+		logger := log.FromContext(context.TODO())
+
+		hvMachine := &infrav1.HarvesterMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "test-cp-0",
+				Namespace:  "test-ns",
+				Finalizers: []string{infrav1.MachineFinalizer},
+			},
+			Spec:   infrav1.HarvesterMachineSpec{ProviderID: "harvester://vm-uid"},
+			Status: infrav1.HarvesterMachineStatus{Ready: true},
+		}
+		conditions.Set(hvMachine, metav1.Condition{
+			Type: infrav1.MachineCreatedCondition, Status: metav1.ConditionTrue, Reason: infrav1.MachineCreatedCondition,
+		})
+
+		scope := &Scope{
+			Ctx: context.TODO(),
+			Cluster: &clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"},
+				Status:     clusterv1.ClusterStatus{Initialization: clusterv1.ClusterInitializationStatus{InfrastructureProvisioned: ptr.To(true)}},
+			},
+			Machine: &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
+				Spec:       clusterv1.MachineSpec{Bootstrap: clusterv1.Bootstrap{DataSecretName: &dataSecretName}},
+			},
+			HarvesterMachine: hvMachine,
+			HarvesterCluster: &infrav1.HarvesterCluster{
+				Spec: infrav1.HarvesterClusterSpec{TargetNamespace: "default"},
+			},
+			HarvesterClient:  hvClient,
+			ReconcilerClient: fakeClient,
+			Logger:           &logger,
+		}
+
+		r := &HarvesterMachineReconciler{Client: fakeClient, Scheme: scheme}
+		_, err := r.ReconcileNormal(scope)
+		Expect(err).ToNot(HaveOccurred())
+
+		Expect(scope.HarvesterMachine.Status.Ready).To(BeFalse())
+
+		// Started again: the machine is ready once its VM runs and reports an address.
+		existingVM.Spec.RunStrategy = ptr.To(kubevirtv1.RunStrategyAlways)
+		existingVM.Status.PrintableStatus = kubevirtv1.VirtualMachineStatusRunning
+		_, err = hvClient.KubevirtV1().VirtualMachines("default").Update(context.TODO(), existingVM, metav1.UpdateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		_, err = hvClient.KubevirtV1().VirtualMachineInstances("default").Create(context.TODO(), &kubevirtv1.VirtualMachineInstance{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "default"},
+			Status: kubevirtv1.VirtualMachineInstanceStatus{
+				Interfaces: []kubevirtv1.VirtualMachineInstanceNetworkInterface{{Name: "nic-1", IP: "172.16.3.44"}},
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = r.ReconcileNormal(scope)
+		Expect(err).ToNot(HaveOccurred())
+
+		Expect(scope.HarvesterMachine.Status.Ready).To(BeTrue())
+	})
+
 	It("should handle halted VM by setting not ready and requeuing", func() {
 		scheme := runtime.NewScheme()
 		_ = corev1.AddToScheme(scheme)
