@@ -1326,6 +1326,58 @@ var _ = Describe("buildVMTemplate", func() {
 		Expect(hasNetworkdata).To(BeFalse())
 	})
 
+	It("should pass a Talos machine config through without merging cloud-init", func() {
+		talosConfig := "version: v1alpha1\nmachine:\n  type: worker\ncluster:\n  clusterName: test\n" +
+			"---\napiVersion: v1alpha1\nkind: HostnameConfig\nhostname: test-talos-0\n"
+		dataSecretName := testBootstrapDataSecretName
+
+		scheme := runtime.NewScheme()
+		_ = corev1.AddToScheme(scheme)
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: dataSecretName, Namespace: "test-ns"},
+			Data:       map[string][]byte{"value": []byte(talosConfig)},
+		}).Build()
+		hvClient := hvfake.NewSimpleClientset(&harvesterv1beta1.KeyPair{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-ssh-key", Namespace: "default"},
+			Spec:       harvesterv1beta1.KeyPairSpec{PublicKey: "ssh-rsa AAAA test@test"},
+		})
+		logger := log.FromContext(context.TODO())
+
+		scope := &Scope{
+			Ctx:              context.TODO(),
+			Logger:           &logger,
+			HarvesterClient:  hvClient,
+			ReconcilerClient: fakeClient,
+			Cluster:          &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "test-cluster"}},
+			HarvesterCluster: &infrav1.HarvesterCluster{Spec: infrav1.HarvesterClusterSpec{TargetNamespace: "default"}},
+			Machine: &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
+				Spec:       clusterv1.MachineSpec{Bootstrap: clusterv1.Bootstrap{DataSecretName: &dataSecretName}},
+			},
+			HarvesterMachine: &infrav1.HarvesterMachine{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-talos-0"},
+				Spec: infrav1.HarvesterMachineSpec{
+					CPU: 2, Memory: "4Gi",
+					SSHKeyPair: "default/capi-ssh-key",
+					Networks:   []string{"default/production"},
+				},
+			},
+		}
+
+		_, err := buildVMTemplate(scope, []diskInfo{{pvcName: "test-talos-0-disk-0", index: 0}}, map[string]string{})
+		Expect(err).ToNot(HaveOccurred())
+
+		// The Talos config must reach the VM byte for byte, with no cloud-init sections merged in
+		secret, err := hvClient.CoreV1().Secrets("default").Get(context.TODO(), "test-talos-0-cloud-init", metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		userdata := string(secret.Data["userdata"])
+		Expect(userdata).To(Equal(talosConfig))
+		Expect(userdata).ToNot(ContainSubstring("#cloud-config"))
+		Expect(userdata).ToNot(ContainSubstring("ssh_authorized_keys"))
+		Expect(userdata).ToNot(ContainSubstring("dhclient"))
+	})
+
 	It("should build VM template with multiple disks and boot order", func() {
 		sshKeyPair := &harvesterv1beta1.KeyPair{
 			ObjectMeta: metav1.ObjectMeta{Name: "capi-ssh-key", Namespace: "default"},
