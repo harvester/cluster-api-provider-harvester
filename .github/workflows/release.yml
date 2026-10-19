@@ -52,7 +52,7 @@ jobs:
 
     - name: Read Prime Registry credentials
       if: ${{ startsWith(github.ref, 'refs/tags/') }}
-      uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # v3
+      uses: rancher-eio/read-vault-secrets@7282bf97898cd1c16c89f837e0bb442e6d384c89 # v3
       with:
         secrets: |
           secret/data/github/repo/harvester/${{ github.repository }}/rancher-prime-registry/credentials registry | PRIME_REGISTRY ;
@@ -61,7 +61,7 @@ jobs:
 
     - name: Read staging registry credentials
       if: ${{ startsWith(github.ref, 'refs/heads/') }}
-      uses: rancher-eio/read-vault-secrets@0da85151ad1f19ed7986c41587e45aac1ace74b6 # v3
+      uses: rancher-eio/read-vault-secrets@7282bf97898cd1c16c89f837e0bb442e6d384c89 # v3
       with:
         secrets: |
           secret/data/github/repo/harvester/${{ github.repository }}/rancher-prime-stg-registry/credentials registry | STAGING_REGISTRY ;
