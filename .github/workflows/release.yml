@@ -12,7 +12,6 @@ on:
   workflow_dispatch: {}
 
 env:
-  REGISTRY: ghcr.io
   IMAGE_NAME: cluster-api-provider-harvester
   TAG: ${{ github.ref_name }}
   ORG: ${{ github.repository_owner }}
@@ -112,9 +111,9 @@ jobs:
         echo  "digest=$MANIFEST_DIGEST" >> "$GITHUB_OUTPUT" 
       env:
         name: ${{ steps.registry.outputs.name }}
-        chart_tag: ${{ steps.registry.output.chart_tag }}
-        pull_policy: ${{ steps.registry.output.pull_policy }}
-        image_tag: ${{ steps.registry.output.image_tag }}
+        chart_tag: ${{ steps.registry.outputs.chart_tag }}
+        pull_policy: ${{ steps.registry.outputs.pull_policy }}
+        image_tag: ${{ steps.registry.outputs.image_tag }}
 
     - name: Sign container image with cosign (keyless OIDC)
       env:
