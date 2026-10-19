@@ -103,9 +103,10 @@ jobs:
       id: build
       run: |
         REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-build-all
+        REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-push-all
         REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-push-chart
-                # Fetch and export the top-level multi-arch manifest digest
-        MANIFEST_DIGEST=$(docker buildx imagetools inspect "$name/{{ env.ORG }}/${{ env.IMAGE_NAME }}:$image_tag" --format '{{.Manifest.Digest}}')
+        # Fetch and export the top-level multi-arch manifest digest
+        MANIFEST_DIGEST=$(docker buildx imagetools inspect "$name/${{ env.ORG }}/${{ env.IMAGE_NAME }}:$image_tag" --format '{{.Manifest.Digest}}')
 
         echo "Multi-arch Manifest Digest: $MANIFEST_DIGEST"
         echo  "digest=$MANIFEST_DIGEST" >> "$GITHUB_OUTPUT" 
