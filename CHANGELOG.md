@@ -35,6 +35,24 @@ All notable changes to this project are documented in this file.
   template cloning. The field is now omitted when empty, as in the CAPI types.
   Templates already stored with the empty object keep it until they are
   recreated.
+- **Deletion stuck after a failed provisioning**: deleting all the objects of a
+  cluster at once (`kubectl delete -f` on its template, the usual way to clean
+  up a failed attempt) removed the HarvesterCluster and the identity Secret
+  while the HarvesterMachines still needed them to delete their VMs, so the
+  machines stayed in deletion forever. The HarvesterCluster now waits for the
+  machines of its cluster before deleting its load balancer and itself, and
+  each HarvesterCluster protects its identity Secret with its own finalizer
+  once it has resources to clean up in Harvester, so several clusters can share
+  the Secret. Deleting a HarvesterCluster no longer requires the Harvester
+  deployment to be available, only a working connection, and an identity Secret
+  holding an invalid kubeconfig now returns an error instead of crashing the
+  machine reconciliation. The control plane load balancer address that CAPHV
+  reserves before the first control plane machine exists is now released when
+  the cluster is deleted, once the Harvester load balancer is gone and before
+  the IP pools are deleted; it leaked when the provisioning failed before the
+  Harvester load balancer was created, and it kept Harvester from deleting a
+  load balancer pool created by CAPHV. The controller needs the `patch` verb on
+  Secrets.
 
 ## [v0.10.1] - 2026-07-28
 
