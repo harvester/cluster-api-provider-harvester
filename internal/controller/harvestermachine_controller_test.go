@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -2636,6 +2637,85 @@ var _ = Describe("ReconcileNormal", func() {
 		// VM is halted -> not running -> requeue after short delay
 		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 		Expect(scope.HarvesterMachine.Status.Ready).To(BeFalse())
+	})
+
+	It("should not recreate the VM of a provisioned machine deleted outside Cluster API", func() {
+		scheme := runtime.NewScheme()
+		_ = corev1.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+		_ = clusterv1.AddToScheme(scheme)
+
+		dataSecretName := testBootstrapDataSecretName
+		bootstrapSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: dataSecretName, Namespace: "test-ns"},
+			Data:       map[string][]byte{"value": []byte("")},
+		}
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(bootstrapSecret).Build()
+
+		sshKeyPair := &harvesterv1beta1.KeyPair{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-ssh-key", Namespace: "default"},
+			Spec:       harvesterv1beta1.KeyPairSpec{PublicKey: "ssh-rsa test"},
+		}
+		// The VM was deleted from the Harvester UI: only the key pair is left.
+		hvClient := hvfake.NewSimpleClientset(sshKeyPair)
+		logger := log.FromContext(context.TODO())
+
+		size := resource.MustParse("40Gi")
+		hvMachine := &infrav1.HarvesterMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       "test-cp-0",
+				Namespace:  "test-ns",
+				Finalizers: []string{infrav1.MachineFinalizer},
+			},
+			Spec: infrav1.HarvesterMachineSpec{
+				ProviderID: "harvester://old-vm-uid",
+				CPU:        2, Memory: "4Gi",
+				SSHKeyPair: "default/capi-ssh-key",
+				Networks:   []string{"default/production"},
+				Volumes: []infrav1.Volume{
+					{VolumeType: "storageClass", StorageClass: "longhorn", VolumeSize: &size},
+				},
+			},
+			Status: infrav1.HarvesterMachineStatus{Ready: true},
+		}
+		conditions.Set(hvMachine, metav1.Condition{
+			Type: infrav1.MachineCreatedCondition, Status: metav1.ConditionTrue, Reason: infrav1.MachineCreatedCondition,
+		})
+
+		scope := &Scope{
+			Ctx: context.TODO(),
+			Cluster: &clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"},
+				Status:     clusterv1.ClusterStatus{Initialization: clusterv1.ClusterInitializationStatus{InfrastructureProvisioned: ptr.To(true)}},
+			},
+			Machine: &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test-ns"},
+				Spec:       clusterv1.MachineSpec{Bootstrap: clusterv1.Bootstrap{DataSecretName: &dataSecretName}},
+			},
+			HarvesterMachine: hvMachine,
+			HarvesterCluster: &infrav1.HarvesterCluster{
+				Spec: infrav1.HarvesterClusterSpec{TargetNamespace: "default"},
+			},
+			HarvesterClient:  hvClient,
+			ReconcilerClient: fakeClient,
+			Logger:           &logger,
+		}
+
+		r := &HarvesterMachineReconciler{Client: fakeClient, Scheme: scheme}
+
+		for range 2 {
+			_, err := r.ReconcileNormal(scope)
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		_, err := hvClient.KubevirtV1().VirtualMachines("default").Get(context.TODO(), "test-cp-0", metav1.GetOptions{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "a replacement VM would not match the provider ID of the Machine")
+		Expect(scope.HarvesterMachine.Status.Ready).To(BeFalse())
+
+		created := conditions.Get(scope.HarvesterMachine, infrav1.MachineCreatedCondition)
+		Expect(created).ToNot(BeNil())
+		Expect(created.Status).To(Equal(metav1.ConditionFalse))
+		Expect(created.Reason).To(Equal(infrav1.MachineNotFoundReason))
 	})
 
 	It("should allocate IP from pool when VMNetworkConfig is set", func() {
