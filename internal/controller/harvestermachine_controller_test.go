@@ -1643,6 +1643,8 @@ var _ = Describe("createVMFromHarvesterMachine", func() {
 		// Verify template exists
 		Expect(vm.Spec.Template).ToNot(BeNil())
 		Expect(vm.Spec.Template.Spec.Domain.CPU.Cores).To(Equal(uint32(4)))
+		// Live migrated on node maintenance and Harvester upgrades, as the Rancher node driver does.
+		Expect(vm.Spec.Template.Spec.EvictionStrategy).To(HaveValue(Equal(kubevirtv1.EvictionStrategyLiveMigrateIfPossible)))
 
 		// Verify the VM was created on the fake client
 		createdVM, err := hvClient.KubevirtV1().VirtualMachines("default").Get(context.TODO(), "test-cp-0", metav1.GetOptions{})
