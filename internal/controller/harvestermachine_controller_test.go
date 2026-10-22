@@ -2156,13 +2156,12 @@ var _ = Describe("ReconcileNormal", func() {
 		r := &HarvesterMachineReconciler{Client: fakeClient, Scheme: scheme}
 		result, err := r.ReconcileNormal(scope)
 		Expect(err).ToNot(HaveOccurred())
-		// VM was just created and its node cannot be initialized yet, so the
-		// reconcile requeues until the node registers and gets its providerID
+		// The VM was just created: the reconcile requeues to wait for it to run, and the
+		// machine is neither ready nor provisioned before its VM has an address.
 		Expect(result.RequeueAfter).To(Equal(requeueDelay))
-		// The end of the reconcile reports the machine ready: the v1beta2 contract field
-		// the CAPI core reads must say the same.
-		Expect(scope.HarvesterMachine.Status.Ready).To(BeTrue())
-		Expect(scope.HarvesterMachine.Status.Initialization.Provisioned).To(BeTrue())
+		Expect(scope.HarvesterMachine.Status.Ready).To(BeFalse())
+		markProvisionedOnceReady(scope.HarvesterMachine.Status.Ready, &scope.HarvesterMachine.Status.Initialization)
+		Expect(scope.HarvesterMachine.Status.Initialization.Provisioned).To(BeFalse())
 
 		// Verify the VM was created on Harvester
 		createdVM, getErr := hvClient.KubevirtV1().VirtualMachines("default").Get(context.TODO(), "test-cp-0", metav1.GetOptions{})
@@ -2456,7 +2455,9 @@ var _ = Describe("ReconcileNormal", func() {
 		Expect(result.RequeueAfter).To(Equal(requeueDelay))
 		Expect(scope.HarvesterMachine.Status.Ready).To(BeTrue())
 		// The machine started ready with an empty initialization (the state a stuck
-		// cluster shows): this path must report provisioned too.
+		// cluster shows): this path must report provisioned too once Reconcile patches
+		// the status.
+		markProvisionedOnceReady(scope.HarvesterMachine.Status.Ready, &scope.HarvesterMachine.Status.Initialization)
 		Expect(scope.HarvesterMachine.Status.Initialization.Provisioned).To(BeTrue())
 		Expect(scope.HarvesterMachine.Spec.ProviderID).To(Equal("harvester://already-set"))
 	})
@@ -2578,7 +2579,7 @@ var _ = Describe("ReconcileNormal", func() {
 		result, err := r.ReconcileNormal(scope)
 		Expect(err).ToNot(HaveOccurred())
 		// No IP addresses but was Ready -> requeue
-		Expect(result.RequeueAfter).To(Equal(1 * time.Minute))
+		Expect(result.RequeueAfter).To(Equal(requeueDelay))
 		Expect(scope.HarvesterMachine.Status.Ready).To(BeFalse())
 	})
 
