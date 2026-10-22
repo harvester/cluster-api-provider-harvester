@@ -43,6 +43,16 @@ All notable changes to this project are documented in this file.
   matches NICs by that address, whatever name the image uses. The DHCP
   workaround finds the interface by MAC and is skipped when ISC `dhclient` is
   not installed.
+- **IP released while the VM still ran, and possibly from another machine**:
+  machine deletion released the IP pool address at the start of every
+  reconcile pass, by address, before the VM had terminated. Each pass while
+  the VM shut down incremented the pool `available` count again; the address
+  could be handed to a new machine while the old guest still used it; and if
+  it had been reallocated between two passes, the other machine's allocation
+  was removed. The address is now released by owner, once the VM is gone,
+  in every configured pool rather than only the one recorded in the status
+  (which `clusterctl move` does not restore), and a failed pool update keeps
+  the finalizer and is retried instead of leaking the address.
 
 ## [v0.10.1] - 2026-07-28
 
