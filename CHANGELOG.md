@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Credentials in the certification artifacts**: the import-gitops workflow
+  uploaded the crust-gather dumps of the bootstrap and workload clusters as
+  artifacts, readable by anyone on a public repository. They hold the identity
+  Secret and the cloud provider token written into the addon ConfigMap. The
+  dumps now stay on the self-hosted runner.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to

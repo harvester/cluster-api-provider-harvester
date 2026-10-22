@@ -52,14 +52,16 @@ jobs:
             REGISTRY_MIRROR_ENDPOINT="$REGISTRY_MIRROR_ENDPOINT" \
             ./bin/import-gitops.test -test.timeout 140m -test.v -ginkgo.v
 
-      - name: Collect artifacts
+      # The cluster dumps hold credentials (the identity Secret, the cloud provider
+      # token written into the addon ConfigMap): they stay on the self-hosted runner
+      # instead of being published as artifacts of a public repository.
+      - name: Keep the artifacts on the runner
         if: always()
         working-directory: test/certification
-        run: sudo chown -R "$(id -u):$(id -g)" _artifacts || true
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4
-        if: always()
-        with:
-          name: import-gitops-artifacts
-          path: test/certification/_artifacts
-          retention-days: 14
+        run: |
+          dest="/var/tmp/caphv-certification/${GITHUB_RUN_ID}"
+          sudo mkdir -p "$dest"
+          sudo cp -a _artifacts/. "$dest"/ || true
+          sudo rm -rf _artifacts
+          sudo find /var/tmp/caphv-certification -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} +
+          echo "Artifacts kept on the runner in $dest"
