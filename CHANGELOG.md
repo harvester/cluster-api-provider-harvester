@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Provider objects named like any kubebuilder project**: the `caphv-` name
+  prefix was dropped from `config/default` after v0.10.1, so the cluster-wide
+  objects were named `manager-role`, `manager-rolebinding`, `proxy-role`,
+  `metrics-reader` and `validating-webhook-configuration`, which other
+  operators of a shared management cluster use too, and an upgrade left the
+  v0.10.1 objects behind. The prefix is restored and the objects keep their
+  v0.10.1 names.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to
