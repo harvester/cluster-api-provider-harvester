@@ -174,10 +174,7 @@ jobs:
           gh api -X DELETE repos/${{ github.repository }}/releases/$STALE_ID
         fi
         gh release create ${{ github.ref_name }} --draft --generate-notes \
-          out/metadata.yaml out/infrastructure-components.yaml \
           out/cluster-template.yaml out/cluster-template-dhcp.yaml \
-          out/cluster-template-generateCPI.yaml out/cluster-template-kubeadm.yaml \
-          out/cluster-template-talos.yaml out/cluster-template-stig.yaml \
           out/clusterclass-harvester-rke2.yaml
         # The list API lags slightly behind the creation: retry the id lookup.
         DRAFT_ID=""
