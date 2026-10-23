@@ -7,7 +7,7 @@ require (
 	github.com/containernetworking/plugins v1.9.0
 	github.com/go-logr/logr v1.4.4
 	github.com/harvester/harvester v1.3.2
-	github.com/harvester/harvester-load-balancer v1.8.1
+	github.com/harvester/harvester-load-balancer v1.8.2
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.7.7
 	github.com/kubernetes-csi/external-snapshotter/client/v4 v4.2.0
 	github.com/longhorn/longhorn-manager v1.13.0-dev-20260712
