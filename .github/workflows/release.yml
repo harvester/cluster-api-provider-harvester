@@ -106,7 +106,7 @@ jobs:
         REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-push-all
         # publish commands accepts docker login credentials as OCI_USERNAME and OCI_PASSWORD
         export OCI_USERNAME=${oci_username}
-        export OCI_PASSWORD=${oci_password}g
+        export OCI_PASSWORD=${oci_password}
         REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-push-chart
         # Fetch and export the top-level multi-arch manifest digest
         MANIFEST_DIGEST=$(docker buildx imagetools inspect "$name/${{ env.ORG }}/${{ env.IMAGE_NAME }}:$image_tag" --format '{{.Manifest.Digest}}')
