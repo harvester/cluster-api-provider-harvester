@@ -1,6 +1,6 @@
 module github.com/harvester/cluster-api-provider-harvester
 
-go 1.26.4
+go 1.26.10
 
 require (
 	github.com/containernetworking/cni v1.3.0
