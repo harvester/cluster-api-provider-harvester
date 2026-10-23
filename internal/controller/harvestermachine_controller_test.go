@@ -1648,6 +1648,19 @@ var _ = Describe("createVMFromHarvesterMachine", func() {
 		createdVM, err := hvClient.KubevirtV1().VirtualMachines("default").Get(context.TODO(), "test-cp-0", metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(createdVM.Name).To(Equal("test-cp-0"))
+
+		// Its disk is listed for removal from the start: Harvester deletes it with the VM,
+		// even when the VM is deleted outside CAPHV.
+		var diskClaim string
+
+		for _, volume := range createdVM.Spec.Template.Spec.Volumes {
+			if volume.PersistentVolumeClaim != nil {
+				diskClaim = volume.PersistentVolumeClaim.ClaimName
+			}
+		}
+
+		Expect(diskClaim).To(HavePrefix("test-cp-0-disk-0-"))
+		Expect(createdVM.Annotations).To(HaveKeyWithValue(vmAnnotationRemovedPVCs, diskClaim))
 	})
 
 	It("should add control-plane label when machine has CP label", func() {
@@ -3088,70 +3101,6 @@ var _ = Describe("getIPAddressesFromVMI", func() {
 })
 
 // =============================================================================
-// Tests for deletePVCsByPrefix (requires fake HarvesterClient)
-// =============================================================================
-
-var _ = Describe("deletePVCsByPrefix", func() {
-	It("should delete PVCs matching prefix", func() {
-		hvClient := hvfake.NewSimpleClientset(
-			&corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-vm-disk-0-abc", Namespace: "default"},
-			},
-			&corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-vm-disk-1-def", Namespace: "default"},
-			},
-			&corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{Name: "other-pvc", Namespace: "default"},
-			},
-		)
-		logger := log.FromContext(context.TODO())
-		scope := &Scope{
-			HarvesterClient: hvClient,
-			Logger:          &logger,
-		}
-		r := &HarvesterMachineReconciler{}
-		r.deletePVCsByPrefix(context.TODO(), scope, "default", "test-vm-disk-")
-
-		pvcs, err := hvClient.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(pvcs.Items).To(HaveLen(1))
-		Expect(pvcs.Items[0].Name).To(Equal("other-pvc"))
-	})
-
-	It("should handle no PVCs matching prefix", func() {
-		hvClient := hvfake.NewSimpleClientset(
-			&corev1.PersistentVolumeClaim{
-				ObjectMeta: metav1.ObjectMeta{Name: "unrelated-pvc", Namespace: "default"},
-			},
-		)
-		logger := log.FromContext(context.TODO())
-		scope := &Scope{
-			HarvesterClient: hvClient,
-			Logger:          &logger,
-		}
-		r := &HarvesterMachineReconciler{}
-		r.deletePVCsByPrefix(context.TODO(), scope, "default", "test-vm-disk-")
-
-		pvcs, err := hvClient.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
-		Expect(err).ToNot(HaveOccurred())
-		Expect(pvcs.Items).To(HaveLen(1))
-		Expect(pvcs.Items[0].Name).To(Equal("unrelated-pvc"))
-	})
-
-	It("should handle empty namespace", func() {
-		hvClient := hvfake.NewSimpleClientset()
-		logger := log.FromContext(context.TODO())
-		scope := &Scope{
-			HarvesterClient: hvClient,
-			Logger:          &logger,
-		}
-		r := &HarvesterMachineReconciler{}
-		r.deletePVCsByPrefix(context.TODO(), scope, "default", "test-vm-disk-")
-		// Should not panic, just do nothing
-	})
-})
-
-// =============================================================================
 // Tests for allocateVMIP (requires fake HarvesterClient)
 // =============================================================================
 
@@ -3662,7 +3611,7 @@ var _ = Describe("ReconcileDelete", func() {
 		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 	})
 
-	It("should clean up PVCs when VM is already gone", func() {
+	It("should remove the finalizer when the VM is already gone, leaving the PVCs alone", func() {
 		cloudInitSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-cp-1-cloud-init", Namespace: "default"},
 		}
@@ -3701,10 +3650,11 @@ var _ = Describe("ReconcileDelete", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(result.RequeueAfter).To(BeZero()) // no requeue — finalizer removed
 
-		// Verify PVCs were deleted
+		// PVCs are never deleted by name: the VM was deleted outside CAPHV, with or
+		// without its volumes, and a PVC sharing the prefix may belong to someone else.
 		pvcs, listErr := hvClient.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
 		Expect(listErr).ToNot(HaveOccurred())
-		Expect(pvcs.Items).To(BeEmpty())
+		Expect(pvcs.Items).To(HaveLen(2))
 
 		// Verify finalizer was removed
 		Expect(machine.Finalizers).ToNot(ContainElement(infrav1.MachineFinalizer))
