@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: harvesterclustertemplates.infrastructure.cluster.x-k8s.io
 spec:
   group: infrastructure.cluster.x-k8s.io
@@ -52,6 +52,7 @@ spec:
                     description: |-
                       Standard object's metadata.
                       More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata.
+                    minProperties: 1
                     properties:
                       annotations:
                         additionalProperties:
@@ -79,20 +80,21 @@ spec:
                       controlPlaneEndpoint:
                         description: ControlPlaneEndpoint represents the endpoint
                           used to communicate with the control plane.
+                        minProperties: 1
                         properties:
                           host:
                             description: host is the hostname on which the API server
                               is serving.
                             maxLength: 512
+                            minLength: 1
                             type: string
                           port:
                             description: port is the port on which the API server
                               is serving.
                             format: int32
+                            maximum: 65535
+                            minimum: 1
                             type: integer
-                        required:
-                        - host
-                        - port
                         type: object
                       identitySecret:
                         description: IdentitySecret is the name of the Secret containing
@@ -261,7 +263,7 @@ spec:
                           ipPool:
                             description: |-
                               IPPool defines a new IPPool to create in Harvester for VM IP allocation.
-                              Mutually exclusive with IPPoolRef.
+                              Mutually exclusive with IPPoolRef/IPPoolRefs.
                             properties:
                               gateway:
                                 description: |-
@@ -294,8 +296,21 @@ spec:
                           ipPoolRef:
                             description: |-
                               IPPoolRef is a reference to an existing IPPool in Harvester for VM IP allocation.
+                              When multiple pools are needed, use IPPoolRefs instead.
                               Mutually exclusive with IPPool.
                             type: string
+                          ipPoolRefs:
+                            description: |-
+                              IPPoolRefs is a list of references to existing IPPools in Harvester.
+                              Pools are tried in order: if a pool is exhausted, allocation falls back
+                              to the next one. A pool whose selector designates a network (the IPPool
+                              spec.selector.network field in Harvester) is only used for machines
+                              attached to that network, so distinct pools can serve, for example, the
+                              control-plane and worker networks of one cluster; a pool with no
+                              selector network is used for any machine.
+                            items:
+                              type: string
+                            type: array
                           subnetMask:
                             description: SubnetMask is the subnet mask for the VM
                               network (e.g. "255.255.0.0").
@@ -315,74 +330,320 @@ spec:
             required:
             - template
             type: object
-          status:
-            description: Status is the status of the template HarvesterCluster resource
+        type: object
+    served: true
+    storage: false
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: HarvesterClusterTemplate is the Schema for the infraclustertemplates
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec is the specification for the template resource
             properties:
-              conditions:
-                description: Conditions defines current service state of the Harvester
-                  cluster.
-                items:
-                  description: Condition defines an observation of a Cluster API resource
-                    operational state.
-                  properties:
-                    lastTransitionTime:
-                      description: |-
-                        lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed. If that is not known, then using the time when
-                        the API field changed is acceptable.
-                      format: date-time
-                      type: string
-                    message:
-                      description: |-
-                        message is a human readable message indicating details about the transition.
-                        This field may be empty.
-                      maxLength: 10240
-                      minLength: 1
-                      type: string
-                    reason:
-                      description: |-
-                        reason is the reason for the condition's last transition in CamelCase.
-                        The specific API may choose whether or not this field is considered a guaranteed API.
-                        This field may be empty.
-                      maxLength: 256
-                      minLength: 1
-                      type: string
-                    severity:
-                      description: |-
-                        severity provides an explicit classification of Reason code, so the users or machines can immediately
-                        understand the current situation and act accordingly.
-                        The Severity field MUST be set only when Status=False.
-                      maxLength: 32
-                      type: string
-                    status:
-                      description: status of the condition, one of True, False, Unknown.
-                      type: string
-                    type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions
-                        can be useful (see .node.status.conditions), the ability to deconflict is important.
-                      maxLength: 256
-                      minLength: 1
-                      type: string
-                  required:
-                  - lastTransitionTime
-                  - status
-                  - type
-                  type: object
-                type: array
-              failureMessage:
-                description: FailureMessage is a full error message dump of the above
-                  failureReason.
-                type: string
-              failureReason:
-                description: FailureReason is the short name for the reason why a
-                  failure might be happening that makes the cluster not ready.
-                type: string
-              ready:
-                description: Ready describes if the Harvester Cluster can be considered
-                  ready for machine creation.
-                type: boolean
+              template:
+                description: HarvesterClusterTemplateResource defines the template
+                  resource for HarvesterCluster.
+                properties:
+                  metadata:
+                    description: |-
+                      Standard object's metadata.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata.
+                    minProperties: 1
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
+                  spec:
+                    description: HarvesterClusterSpec defines the desired state of
+                      HarvesterCluster.
+                    properties:
+                      controlPlaneEndpoint:
+                        description: ControlPlaneEndpoint represents the endpoint
+                          used to communicate with the control plane.
+                        minProperties: 1
+                        properties:
+                          host:
+                            description: host is the hostname on which the API server
+                              is serving.
+                            maxLength: 512
+                            minLength: 1
+                            type: string
+                          port:
+                            description: port is the port on which the API server
+                              is serving.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                        type: object
+                      identitySecret:
+                        description: IdentitySecret is the name of the Secret containing
+                          HarvesterKubeConfig file.
+                        properties:
+                          name:
+                            description: Name is the name of the required Identity
+                              Secret.
+                            type: string
+                          namespace:
+                            description: Namespace is the namespace in which the required
+                              Identity Secret should be found.
+                            type: string
+                        required:
+                        - name
+                        - namespace
+                        type: object
+                      loadBalancerConfig:
+                        description: LoadBalancerConfig describes how the load balancer
+                          should be created in Harvester.
+                        properties:
+                          description:
+                            description: Description is a description of the load
+                              balancer that should be created.
+                            type: string
+                          ipPool:
+                            description: |-
+                              IpPool defines a new IpPool that will be added to Harvester.
+                              This field is mutually exclusive with "IpPoolRef".
+                            properties:
+                              gateway:
+                                description: |-
+                                  Gateway is the IP Address that should be used by the Gateway on the Subnet. It should be a valid address inside the subnet.
+                                  e.g. 172.17.1.1.
+                                type: string
+                              rangeEnd:
+                                description: RangeEnd is the last IP Address that
+                                  should be used by the IP Pool.
+                                type: string
+                              rangeStart:
+                                description: RangeStart is the first IP Address that
+                                  should be used by the IP Pool.
+                                type: string
+                              subnet:
+                                description: |-
+                                  Subnet is a string describing the subnet that should be used by the IP Pool, it should have the CIDR Format of an IPv4 Address.
+                                  e.g. 172.17.1.0/24.
+                                type: string
+                              vmNetwork:
+                                description: |-
+                                  VMNetwork is the name of an existing VM Network in Harvester where the IPPool should exist.
+                                  The reference can have the format "namespace/name" or just "name" if the object is in the same namespace as the HarvesterCluster.
+                                type: string
+                            required:
+                            - gateway
+                            - subnet
+                            - vmNetwork
+                            type: object
+                          ipPoolRef:
+                            description: |-
+                              IpPoolRef is a reference to an existing IpPool object in Harvester's cluster.
+                              This field is mutually exclusive with "ipPool".
+                            type: string
+                          ipamType:
+                            description: |-
+                              IPAMType is the configuration of IP addressing for the control plane load balancer.
+                              This can take two values, either "dhcp" or "ippool".
+                            enum:
+                            - dhcp
+                            - pool
+                            type: string
+                          listeners:
+                            description: Listeners is a list of listeners that should
+                              be created on the load balancer.
+                            items:
+                              description: Listener is a description of a new Listener
+                                to be created on the Load Balancer.
+                              properties:
+                                backendPort:
+                                  description: TargetPort is the port that the listener
+                                    should forward traffic to.
+                                  format: int32
+                                  type: integer
+                                name:
+                                  description: Name is the name of the listener.
+                                  type: string
+                                port:
+                                  description: Port is the port that the listener
+                                    should listen on.
+                                  format: int32
+                                  type: integer
+                                protocol:
+                                  description: Protocol is the protocol that the listener
+                                    should use, either TCP or UDP.
+                                  enum:
+                                  - TCP
+                                  - UDP
+                                  type: string
+                              required:
+                              - backendPort
+                              - name
+                              - port
+                              - protocol
+                              type: object
+                            type: array
+                        required:
+                        - ipamType
+                        type: object
+                      server:
+                        description: Server is the url to connect to Harvester.
+                        type: string
+                      targetNamespace:
+                        description: TargetNamespace is the namespace on the Harvester
+                          cluster where VMs, Load Balancers, etc. should be created.
+                        type: string
+                      updateCloudProviderConfig:
+                        description: |-
+                          UpdateCloudProviderConfig if not empty, will trigger the generation of the cloud provider configuration.
+                          It needs a reference to a ConfigMap containing the cloud provider deployment manifests, that are used by a ClusterResourceSet.
+                        properties:
+                          cloudConfigCredentialsSecretKey:
+                            description: CloudConfigCredentialsSecretKey is the key
+                              in the secret that contains the cloud provider credentials.
+                            type: string
+                          cloudConfigCredentialsSecretName:
+                            description: CloudConfigCredentialsSecretName is the name
+                              of the secret containing the cloud provider credentials.
+                            type: string
+                          manifestsConfigMapKey:
+                            description: ManifestsConfigMapKey is the key in the ConfigMap
+                              that contains the cloud provider deployment manifests.
+                            type: string
+                          manifestsConfigMapName:
+                            description: ManifestsConfigMapName is the name of the
+                              required ConfigMap.
+                            type: string
+                          manifestsConfigMapNamespace:
+                            description: ManifestsConfigMapNamespace is the namespace
+                              in which the required ConfigMap should be found.
+                            type: string
+                        required:
+                        - cloudConfigCredentialsSecretKey
+                        - cloudConfigCredentialsSecretName
+                        - manifestsConfigMapKey
+                        - manifestsConfigMapName
+                        - manifestsConfigMapNamespace
+                        type: object
+                      vmNetworkConfig:
+                        description: VMNetworkConfig is the network configuration
+                          for VMs that use static IPs from a pool.
+                        properties:
+                          dnsSearch:
+                            description: DNSSearch is a list of DNS search domains.
+                            items:
+                              type: string
+                            type: array
+                          dnsServers:
+                            description: DNSServers is a list of DNS server IP addresses.
+                            items:
+                              type: string
+                            type: array
+                          gateway:
+                            description: Gateway is the gateway IP address for the
+                              VM network.
+                            type: string
+                          ipPool:
+                            description: |-
+                              IPPool defines a new IPPool to create in Harvester for VM IP allocation.
+                              Mutually exclusive with IPPoolRef/IPPoolRefs.
+                            properties:
+                              gateway:
+                                description: |-
+                                  Gateway is the IP Address that should be used by the Gateway on the Subnet. It should be a valid address inside the subnet.
+                                  e.g. 172.17.1.1.
+                                type: string
+                              rangeEnd:
+                                description: RangeEnd is the last IP Address that
+                                  should be used by the IP Pool.
+                                type: string
+                              rangeStart:
+                                description: RangeStart is the first IP Address that
+                                  should be used by the IP Pool.
+                                type: string
+                              subnet:
+                                description: |-
+                                  Subnet is a string describing the subnet that should be used by the IP Pool, it should have the CIDR Format of an IPv4 Address.
+                                  e.g. 172.17.1.0/24.
+                                type: string
+                              vmNetwork:
+                                description: |-
+                                  VMNetwork is the name of an existing VM Network in Harvester where the IPPool should exist.
+                                  The reference can have the format "namespace/name" or just "name" if the object is in the same namespace as the HarvesterCluster.
+                                type: string
+                            required:
+                            - gateway
+                            - subnet
+                            - vmNetwork
+                            type: object
+                          ipPoolRef:
+                            description: |-
+                              IPPoolRef is a reference to an existing IPPool in Harvester for VM IP allocation.
+                              When multiple pools are needed, use IPPoolRefs instead.
+                              Mutually exclusive with IPPool.
+                            type: string
+                          ipPoolRefs:
+                            description: |-
+                              IPPoolRefs is a list of references to existing IPPools in Harvester.
+                              Pools are tried in order: if a pool is exhausted, allocation falls back
+                              to the next one. A pool whose selector designates a network (the IPPool
+                              spec.selector.network field in Harvester) is only used for machines
+                              attached to that network, so distinct pools can serve, for example, the
+                              control-plane and worker networks of one cluster; a pool with no
+                              selector network is used for any machine.
+                            items:
+                              type: string
+                            type: array
+                          subnetMask:
+                            description: SubnetMask is the subnet mask for the VM
+                              network (e.g. "255.255.0.0").
+                            type: string
+                        required:
+                        - gateway
+                        - subnetMask
+                        type: object
+                    required:
+                    - identitySecret
+                    - loadBalancerConfig
+                    - targetNamespace
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
             type: object
         type: object
     served: true

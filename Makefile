@@ -156,8 +156,8 @@ docker-build-%:
 .PHONY: docker-build
 docker-build:  ## Build docker image with the manager.
 	DOCKER_BUILDKIT=1 docker build --build-arg builder_image=$(GO_CONTAINER_IMAGE) --build-arg goproxy=$(GOPROXY) --build-arg TARGETARCH=$(ARCH) --build-arg package=./ --build-arg ldflags="$(LDFLAGS)" . -t $(IMG)-$(ARCH):$(TAG)
-	$(MAKE) set-manifest-image MANIFEST_IMG=$(IMG)-$(ARCH) MANIFEST_TAG=$(TAG) TARGET_RESOURCE="./config/default/manager_image_patch.yaml"
-	$(MAKE) set-manifest-pull-policy TARGET_RESOURCE="./config/default/manager_pull_policy.yaml"
+	## $(MAKE) set-manifest-image MANIFEST_IMG=$(IMG)-$(ARCH) MANIFEST_TAG=$(TAG) TARGET_RESOURCE="./config/default/manager_image_patch.yaml"
+	## $(MAKE) set-manifest-pull-policy TARGET_RESOURCE="./config/default/manager_pull_policy.yaml"
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -415,17 +415,16 @@ yq: # Download yq into the bin folder
 helm: # Download helm into the  bin folder
 	test -s $(LOCALBIN)/helm || GOBIN=$(LOCALBIN) go install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
 
+.PHONY: cluster-api-operator
+cluster-api-operator: #Download capi-operator plugin into the bin folder
+	test -s $(LOCALBIN)/plugin || GOBIN=$(LOCALBIN) go install sigs.k8s.io/cluster-api-operator/cmd/plugin@latest
+
 .PHONY: docker-push-chart
-docker-push-chart:  yq helm ## Package chart and push it to the container registry
-	@if [ -d /tmp/$(CHART_IMAGE_NAME) ]; then \
-		rm -rf /tmp/$(CHART_IMAGE_NAME); \
+docker-push-chart:  yq helm cluster-api-operator## Package chart and push it to the container registry
+	@if [ -d /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG) ]; then \
+		rm -rf /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG); \
 	fi ; \
-	cp -r ./chart/caphv /tmp/$(CHART_IMAGE_NAME) ; \
-	$(LOCALBIN)/yq -i '.name = "$(CHART_IMAGE_NAME)"' /tmp/$(CHART_IMAGE_NAME)/Chart.yaml ; \
-	$(LOCALBIN)/yq -i '.image.tag = "$(TAG)"' /tmp/$(CHART_IMAGE_NAME)/values.yaml ; \
-	$(LOCALBIN)/yq -i '.image.pullPolicy = "$(PULL_POLICY)"' /tmp/$(CHART_IMAGE_NAME)/values.yaml ; \
-	$(LOCALBIN)/yq -i '.image.repository = "$(IMG)"' /tmp/$(CHART_IMAGE_NAME)/values.yaml ; \
-	$(LOCALBIN)/helm package /tmp/$(CHART_IMAGE_NAME) --version $(CHART_TAG) -d /tmp ; \
-	$(LOCALBIN)/helm push /tmp/$(CHART_IMAGE_NAME)-$(CHART_TAG).tgz oci://$(REGISTRY)/$(ORG) ; \
-	rm -f /tmp/$(CHART_IMAGE_NAME)-$(CHART_TAG).tgz ; \
-	rm -rf /tmp/$(CHART_IMAGE_NAME)
+	mkdir -p /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG) ;\
+	helm template  --include-crds chart/caphv --set image.tag=$(TAG) --set image.pullPolicy=$(PULL_POLICY) --set image.repository=$(IMG) > /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG)/infrastructure-components.yaml ;\
+	cp metadata.yaml /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG) ;\
+	$(LOCALBIN)/plugin publish -u $(REGISTRY)/$(ORG)/$(CHART_IMAGE_NAME):$(CHART_TAG) -d /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG)

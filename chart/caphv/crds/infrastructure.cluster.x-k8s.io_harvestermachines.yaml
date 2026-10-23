@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.5
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: harvestermachines.infrastructure.cluster.x-k8s.io
 spec:
   group: infrastructure.cluster.x-k8s.io
@@ -47,6 +47,22 @@ spec:
                 description: FailureDomain defines the zone or failure domain where
                   this VM should be.
                 type: string
+              firmware:
+                description: |-
+                  Firmware selects the firmware used to boot the VM. When unset, the VM
+                  keeps booting with the current default (BIOS).
+                properties:
+                  efi:
+                    description: EFI boots the VM with UEFI firmware instead of the
+                      default BIOS.
+                    type: boolean
+                  secureBoot:
+                    description: |-
+                      SecureBoot enables UEFI Secure Boot: the VM boots with
+                      SecureBoot-enabled OVMF ROMs and the SMM CPU feature is turned on.
+                      Requires efi to be true. The guest image must carry a signed bootloader.
+                    type: boolean
+                type: object
               memory:
                 description: Memory is the memory size to assign to the VM (should
                   be similar to pod.spec.containers.resources.limits).
@@ -297,6 +313,104 @@ spec:
                 description: SSHUser is the user that should be used to connect to
                   the VMs using SSH.
                 type: string
+              tpm:
+                description: |-
+                  TPM attaches an emulated Trusted Platform Module device to the VM.
+                  Together with UEFI Secure Boot, this is the building block for measured
+                  or attested boot setups.
+                properties:
+                  enabled:
+                    description: Enabled attaches an emulated TPM device to the VM.
+                    type: boolean
+                  persistent:
+                    description: Persistent keeps the TPM state across reboots.
+                    type: boolean
+                type: object
+              vmNetworkConfig:
+                description: |-
+                  VMNetworkConfig is the pool-based network configuration for this machine.
+                  When set, it fully replaces the cluster-level spec.vmNetworkConfig of the
+                  HarvesterCluster for this machine: the IP is allocated from the pools
+                  referenced here, and the gateway, subnet mask and DNS settings defined here
+                  are written to the machine cloud-init. Set it in a HarvesterMachineTemplate
+                  to give one machine type (for example the workers) a network configuration
+                  different from the rest of the cluster, such as a dedicated network with its
+                  own gateway. When unset, the cluster-level configuration applies. The inline
+                  ipPool variant is not supported at the machine level; use ipPoolRef or
+                  ipPoolRefs. Mutually exclusive with networkConfig.
+                properties:
+                  dnsSearch:
+                    description: DNSSearch is a list of DNS search domains.
+                    items:
+                      type: string
+                    type: array
+                  dnsServers:
+                    description: DNSServers is a list of DNS server IP addresses.
+                    items:
+                      type: string
+                    type: array
+                  gateway:
+                    description: Gateway is the gateway IP address for the VM network.
+                    type: string
+                  ipPool:
+                    description: |-
+                      IPPool defines a new IPPool to create in Harvester for VM IP allocation.
+                      Mutually exclusive with IPPoolRef/IPPoolRefs.
+                    properties:
+                      gateway:
+                        description: |-
+                          Gateway is the IP Address that should be used by the Gateway on the Subnet. It should be a valid address inside the subnet.
+                          e.g. 172.17.1.1.
+                        type: string
+                      rangeEnd:
+                        description: RangeEnd is the last IP Address that should be
+                          used by the IP Pool.
+                        type: string
+                      rangeStart:
+                        description: RangeStart is the first IP Address that should
+                          be used by the IP Pool.
+                        type: string
+                      subnet:
+                        description: |-
+                          Subnet is a string describing the subnet that should be used by the IP Pool, it should have the CIDR Format of an IPv4 Address.
+                          e.g. 172.17.1.0/24.
+                        type: string
+                      vmNetwork:
+                        description: |-
+                          VMNetwork is the name of an existing VM Network in Harvester where the IPPool should exist.
+                          The reference can have the format "namespace/name" or just "name" if the object is in the same namespace as the HarvesterCluster.
+                        type: string
+                    required:
+                    - gateway
+                    - subnet
+                    - vmNetwork
+                    type: object
+                  ipPoolRef:
+                    description: |-
+                      IPPoolRef is a reference to an existing IPPool in Harvester for VM IP allocation.
+                      When multiple pools are needed, use IPPoolRefs instead.
+                      Mutually exclusive with IPPool.
+                    type: string
+                  ipPoolRefs:
+                    description: |-
+                      IPPoolRefs is a list of references to existing IPPools in Harvester.
+                      Pools are tried in order: if a pool is exhausted, allocation falls back
+                      to the next one. A pool whose selector designates a network (the IPPool
+                      spec.selector.network field in Harvester) is only used for machines
+                      attached to that network, so distinct pools can serve, for example, the
+                      control-plane and worker networks of one cluster; a pool with no
+                      selector network is used for any machine.
+                    items:
+                      type: string
+                    type: array
+                  subnetMask:
+                    description: SubnetMask is the subnet mask for the VM network
+                      (e.g. "255.255.0.0").
+                    type: string
+                required:
+                - gateway
+                - subnetMask
+                type: object
               volumes:
                 description: Volumes is a list of Volumes to attach to the VM
                 items:
@@ -727,67 +841,1009 @@ spec:
                 description: AllocatedIPAddress is the IP address allocated from the
                   VM IP pool for this machine.
                 type: string
+              allocatedPoolRef:
+                description: |-
+                  AllocatedPoolRef is the name of the IPPool from which AllocatedIPAddress was allocated.
+                  Used for accurate release when multiple pools are configured.
+                type: string
               conditions:
                 items:
-                  description: Condition defines an observation of a Cluster API resource
-                    operational state.
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
                         lastTransitionTime is the last time the condition transitioned from one status to another.
-                        This should be when the underlying condition changed. If that is not known, then using the time when
-                        the API field changed is acceptable.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
                       description: |-
                         message is a human readable message indicating details about the transition.
-                        This field may be empty.
-                      maxLength: 10240
-                      minLength: 1
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
                     reason:
                       description: |-
-                        reason is the reason for the condition's last transition in CamelCase.
-                        The specific API may choose whether or not this field is considered a guaranteed API.
-                        This field may be empty.
-                      maxLength: 256
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
                       minLength: 1
-                      type: string
-                    severity:
-                      description: |-
-                        severity provides an explicit classification of Reason code, so the users or machines can immediately
-                        understand the current situation and act accordingly.
-                        The Severity field MUST be set only when Status=False.
-                      maxLength: 32
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
                       type: string
                     status:
                       description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions
-                        can be useful (see .node.status.conditions), the ability to deconflict is important.
-                      maxLength: 256
-                      minLength: 1
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
                   required:
                   - lastTransitionTime
+                  - message
+                  - reason
                   - status
                   - type
                   type: object
                 type: array
+              failureDomain:
+                description: |-
+                  FailureDomain reports the failure domain the machine was placed in
+                  (CAPI contract field, mirrored to Machine.status.failureDomain).
+                type: string
               failureMessage:
+                description: |-
+                  FailureMessage is a full error message dump of the above failureReason.
+
+                  Deprecated: the CAPI v1beta2 contract removed terminal failures; failures now
+                  surface through the conditions. The controller never sets this field, which
+                  will be dropped at the next API version.
                 type: string
               failureReason:
+                description: |-
+                  FailureReason is the short name for the reason of a terminal failure.
+
+                  Deprecated: the CAPI v1beta2 contract removed terminal failures; failures now
+                  surface through the conditions. The controller never sets this field, which
+                  will be dropped at the next API version.
                 type: string
               initialization:
-                description: Initialization is an object that defines the initialization
-                  of the VM on Harvester.
+                description: |-
+                  Initialization provides the CAPI v1beta2 contract readiness field
+                  (status.initialization.provisioned), kept in sync with status.ready (v1beta1 contract).
                 properties:
                   provisioned:
-                    description: Provisioned shows if the VM has been provisioned.
+                    description: Provisioned shows if the resource has been provisioned.
+                    type: boolean
+                type: object
+              ready:
+                description: Ready is true when the provider resource is ready.
+                type: boolean
+            type: object
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: HarvesterMachine is the Schema for the harvestermachines API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: HarvesterMachineSpec defines the desired state of HarvesterMachine.
+            properties:
+              cpu:
+                description: CPU is the number of CPU to assign to the VM.
+                format: int32
+                type: integer
+              failureDomain:
+                description: FailureDomain defines the zone or failure domain where
+                  this VM should be.
+                type: string
+              firmware:
+                description: |-
+                  Firmware selects the firmware used to boot the VM. When unset, the VM
+                  keeps booting with the current default (BIOS).
+                properties:
+                  efi:
+                    description: EFI boots the VM with UEFI firmware instead of the
+                      default BIOS.
+                    type: boolean
+                  secureBoot:
+                    description: |-
+                      SecureBoot enables UEFI Secure Boot: the VM boots with
+                      SecureBoot-enabled OVMF ROMs and the SMM CPU feature is turned on.
+                      Requires efi to be true. The guest image must carry a signed bootloader.
+                    type: boolean
+                type: object
+              memory:
+                description: Memory is the memory size to assign to the VM (should
+                  be similar to pod.spec.containers.resources.limits).
+                type: string
+              networkConfig:
+                description: |-
+                  NetworkConfig is the static network configuration for this specific machine.
+                  If set, this takes precedence over the cluster-level VMNetworkConfig IP pool allocation.
+                properties:
+                  address:
+                    description: Address is the static IP address for the VM (e.g.
+                      "172.16.3.40").
+                    type: string
+                  dnsSearch:
+                    description: DNSSearch is a list of DNS search domains.
+                    items:
+                      type: string
+                    type: array
+                  dnsServers:
+                    description: DNSServers is a list of DNS server IP addresses.
+                    items:
+                      type: string
+                    type: array
+                  gateway:
+                    description: Gateway is the gateway IP address.
+                    type: string
+                required:
+                - address
+                - gateway
+                type: object
+              networks:
+                description: |-
+                  Networks is a list of Networks to attach to the VM.
+                  Each item in the list can have the format "namespace/name" or just "name" if the object is in the same namespace as the HarvesterMachine.
+                items:
+                  type: string
+                type: array
+              nodeAffinity:
+                description: NodeAffinity gives the possibility to select preferred
+                  nodes for VM scheduling on Harvester. This works exactly like Pods.
+                properties:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    description: |-
+                      The scheduler will prefer to schedule pods to nodes that satisfy
+                      the affinity expressions specified by this field, but it may choose
+                      a node that violates one or more of the expressions. The node that is
+                      most preferred is the one with the greatest sum of weights, i.e.
+                      for each node that meets all of the scheduling requirements (resource
+                      request, requiredDuringScheduling affinity expressions, etc.),
+                      compute a sum by iterating through the elements of this field and adding
+                      "weight" to the sum if the node matches the corresponding matchExpressions; the
+                      node(s) with the highest sum are the most preferred.
+                    items:
+                      description: |-
+                        An empty preferred scheduling term matches all objects with implicit weight 0
+                        (i.e. it's a no-op). A null preferred scheduling term matches no objects (i.e. is also a no-op).
+                      properties:
+                        preference:
+                          description: A node selector term, associated with the corresponding
+                            weight.
+                          properties:
+                            matchExpressions:
+                              description: A list of node selector requirements by
+                                node's labels.
+                              items:
+                                description: |-
+                                  A node selector requirement is a selector that contains values, a key, and an operator
+                                  that relates the key and values.
+                                properties:
+                                  key:
+                                    description: The label key that the selector applies
+                                      to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      Represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      An array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. If the operator is Gt or Lt, the values
+                                      array must have a single element, which will be interpreted as an integer.
+                                      This array is replaced during a strategic merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchFields:
+                              description: A list of node selector requirements by
+                                node's fields.
+                              items:
+                                description: |-
+                                  A node selector requirement is a selector that contains values, a key, and an operator
+                                  that relates the key and values.
+                                properties:
+                                  key:
+                                    description: The label key that the selector applies
+                                      to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      Represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      An array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. If the operator is Gt or Lt, the values
+                                      array must have a single element, which will be interpreted as an integer.
+                                      This array is replaced during a strategic merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        weight:
+                          description: Weight associated with matching the corresponding
+                            nodeSelectorTerm, in the range 1-100.
+                          format: int32
+                          type: integer
+                      required:
+                      - preference
+                      - weight
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    description: |-
+                      If the affinity requirements specified by this field are not met at
+                      scheduling time, the pod will not be scheduled onto the node.
+                      If the affinity requirements specified by this field cease to be met
+                      at some point during pod execution (e.g. due to an update), the system
+                      may or may not try to eventually evict the pod from its node.
+                    properties:
+                      nodeSelectorTerms:
+                        description: Required. A list of node selector terms. The
+                          terms are ORed.
+                        items:
+                          description: |-
+                            A null or empty node selector term matches no objects. The requirements of
+                            them are ANDed.
+                            The TopologySelectorTerm type implements a subset of the NodeSelectorTerm.
+                          properties:
+                            matchExpressions:
+                              description: A list of node selector requirements by
+                                node's labels.
+                              items:
+                                description: |-
+                                  A node selector requirement is a selector that contains values, a key, and an operator
+                                  that relates the key and values.
+                                properties:
+                                  key:
+                                    description: The label key that the selector applies
+                                      to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      Represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      An array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. If the operator is Gt or Lt, the values
+                                      array must have a single element, which will be interpreted as an integer.
+                                      This array is replaced during a strategic merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchFields:
+                              description: A list of node selector requirements by
+                                node's fields.
+                              items:
+                                description: |-
+                                  A node selector requirement is a selector that contains values, a key, and an operator
+                                  that relates the key and values.
+                                properties:
+                                  key:
+                                    description: The label key that the selector applies
+                                      to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      Represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      An array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. If the operator is Gt or Lt, the values
+                                      array must have a single element, which will be interpreted as an integer.
+                                      This array is replaced during a strategic merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    required:
+                    - nodeSelectorTerms
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+              providerID:
+                description: |-
+                  ProviderID will be the ID of the VM in the provider (Harvester).
+                  This is set by the Cloud provider on the Workload cluster node and replicated by CAPI.
+                type: string
+              sshKeyPair:
+                description: |-
+                  SSHKeyPair is the name of the SSH key pair to use for SSH access to the VM (this keyPair should be created in Harvester).
+                  The reference can be in the format "namespace/name" or just "name" if the object is in the same namespace as the HarvesterMachine.
+                type: string
+              sshUser:
+                description: SSHUser is the user that should be used to connect to
+                  the VMs using SSH.
+                type: string
+              tpm:
+                description: |-
+                  TPM attaches an emulated Trusted Platform Module device to the VM.
+                  Together with UEFI Secure Boot, this is the building block for measured
+                  or attested boot setups.
+                properties:
+                  enabled:
+                    description: Enabled attaches an emulated TPM device to the VM.
+                    type: boolean
+                  persistent:
+                    description: Persistent keeps the TPM state across reboots.
+                    type: boolean
+                type: object
+              vmNetworkConfig:
+                description: |-
+                  VMNetworkConfig is the pool-based network configuration for this machine.
+                  When set, it fully replaces the cluster-level spec.vmNetworkConfig of the
+                  HarvesterCluster for this machine: the IP is allocated from the pools
+                  referenced here, and the gateway, subnet mask and DNS settings defined here
+                  are written to the machine cloud-init. Set it in a HarvesterMachineTemplate
+                  to give one machine type (for example the workers) a network configuration
+                  different from the rest of the cluster, such as a dedicated network with its
+                  own gateway. When unset, the cluster-level configuration applies. The inline
+                  ipPool variant is not supported at the machine level; use ipPoolRef or
+                  ipPoolRefs. Mutually exclusive with networkConfig.
+                properties:
+                  dnsSearch:
+                    description: DNSSearch is a list of DNS search domains.
+                    items:
+                      type: string
+                    type: array
+                  dnsServers:
+                    description: DNSServers is a list of DNS server IP addresses.
+                    items:
+                      type: string
+                    type: array
+                  gateway:
+                    description: Gateway is the gateway IP address for the VM network.
+                    type: string
+                  ipPool:
+                    description: |-
+                      IPPool defines a new IPPool to create in Harvester for VM IP allocation.
+                      Mutually exclusive with IPPoolRef/IPPoolRefs.
+                    properties:
+                      gateway:
+                        description: |-
+                          Gateway is the IP Address that should be used by the Gateway on the Subnet. It should be a valid address inside the subnet.
+                          e.g. 172.17.1.1.
+                        type: string
+                      rangeEnd:
+                        description: RangeEnd is the last IP Address that should be
+                          used by the IP Pool.
+                        type: string
+                      rangeStart:
+                        description: RangeStart is the first IP Address that should
+                          be used by the IP Pool.
+                        type: string
+                      subnet:
+                        description: |-
+                          Subnet is a string describing the subnet that should be used by the IP Pool, it should have the CIDR Format of an IPv4 Address.
+                          e.g. 172.17.1.0/24.
+                        type: string
+                      vmNetwork:
+                        description: |-
+                          VMNetwork is the name of an existing VM Network in Harvester where the IPPool should exist.
+                          The reference can have the format "namespace/name" or just "name" if the object is in the same namespace as the HarvesterCluster.
+                        type: string
+                    required:
+                    - gateway
+                    - subnet
+                    - vmNetwork
+                    type: object
+                  ipPoolRef:
+                    description: |-
+                      IPPoolRef is a reference to an existing IPPool in Harvester for VM IP allocation.
+                      When multiple pools are needed, use IPPoolRefs instead.
+                      Mutually exclusive with IPPool.
+                    type: string
+                  ipPoolRefs:
+                    description: |-
+                      IPPoolRefs is a list of references to existing IPPools in Harvester.
+                      Pools are tried in order: if a pool is exhausted, allocation falls back
+                      to the next one. A pool whose selector designates a network (the IPPool
+                      spec.selector.network field in Harvester) is only used for machines
+                      attached to that network, so distinct pools can serve, for example, the
+                      control-plane and worker networks of one cluster; a pool with no
+                      selector network is used for any machine.
+                    items:
+                      type: string
+                    type: array
+                  subnetMask:
+                    description: SubnetMask is the subnet mask for the VM network
+                      (e.g. "255.255.0.0").
+                    type: string
+                required:
+                - gateway
+                - subnetMask
+                type: object
+              volumes:
+                description: Volumes is a list of Volumes to attach to the VM
+                items:
+                  description: Volume defines a volume that should be attached to
+                    the VM.
+                  properties:
+                    bootOrder:
+                      description: |-
+                        BootOrder is an integer that determines the order of priority of volumes for booting the VM.
+                        If absent, the sequence with which volumes appear in the manifest will be used.
+                      type: integer
+                    imageName:
+                      description: |-
+                        ImageName is the name of the image to use if the volumeType is "image"
+                        ImageName can be in the format "namespace/name" or just "name" if the object is in the same namespace as the HarvesterMachine.
+                      type: string
+                    storageClass:
+                      description: StorageClass is the name of the storage class to
+                        be used if the volumeType is "storageClass"
+                      type: string
+                    volumeSize:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      description: |-
+                        VolumeSize is the desired size of the volume. This satisfies to standard Kubernetes *resource.Quantity syntax.
+                        Examples: 40.5Gi, 30M, etc. are valid
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    volumeType:
+                      description: |-
+                        VolumeType is the type of volume to attach.
+                        Choose between: "storageClass" or "image"
+                      enum:
+                      - storageClass
+                      - image
+                      type: string
+                  required:
+                  - volumeType
+                  type: object
+                type: array
+              workloadAffinity:
+                description: WorkloadAffinity gives the possibility to define affinity
+                  rules with other workloads running on Harvester.
+                properties:
+                  preferredDuringSchedulingIgnoredDuringExecution:
+                    description: |-
+                      The scheduler will prefer to schedule pods to nodes that satisfy
+                      the affinity expressions specified by this field, but it may choose
+                      a node that violates one or more of the expressions. The node that is
+                      most preferred is the one with the greatest sum of weights, i.e.
+                      for each node that meets all of the scheduling requirements (resource
+                      request, requiredDuringScheduling affinity expressions, etc.),
+                      compute a sum by iterating through the elements of this field and adding
+                      "weight" to the sum if the node has pods which matches the corresponding podAffinityTerm; the
+                      node(s) with the highest sum are the most preferred.
+                    items:
+                      description: The weights of all of the matched WeightedPodAffinityTerm
+                        fields are added per-node to find the most preferred node(s)
+                      properties:
+                        podAffinityTerm:
+                          description: Required. A pod affinity term, associated with
+                            the corresponding weight.
+                          properties:
+                            labelSelector:
+                              description: |-
+                                A label query over a set of resources, in this case pods.
+                                If it's null, this PodAffinityTerm matches with no Pods.
+                              properties:
+                                matchExpressions:
+                                  description: matchExpressions is a list of label
+                                    selector requirements. The requirements are ANDed.
+                                  items:
+                                    description: |-
+                                      A label selector requirement is a selector that contains values, a key, and an operator that
+                                      relates the key and values.
+                                    properties:
+                                      key:
+                                        description: key is the label key that the
+                                          selector applies to.
+                                        type: string
+                                      operator:
+                                        description: |-
+                                          operator represents a key's relationship to a set of values.
+                                          Valid operators are In, NotIn, Exists and DoesNotExist.
+                                        type: string
+                                      values:
+                                        description: |-
+                                          values is an array of string values. If the operator is In or NotIn,
+                                          the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                          the values array must be empty. This array is replaced during a strategic
+                                          merge patch.
+                                        items:
+                                          type: string
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                    required:
+                                    - key
+                                    - operator
+                                    type: object
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                                matchLabels:
+                                  additionalProperties:
+                                    type: string
+                                  description: |-
+                                    matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                    map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                    operator is "In", and the values array contains only "value". The requirements are ANDed.
+                                  type: object
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            matchLabelKeys:
+                              description: |-
+                                MatchLabelKeys is a set of pod label keys to select which pods will
+                                be taken into consideration. The keys are used to lookup values from the
+                                incoming pod labels, those key-value labels are merged with `labelSelector` as `key in (value)`
+                                to select the group of existing pods which pods will be taken into consideration
+                                for the incoming pod's pod (anti) affinity. Keys that don't exist in the incoming
+                                pod labels will be ignored. The default value is empty.
+                                The same key is forbidden to exist in both matchLabelKeys and labelSelector.
+                                Also, matchLabelKeys cannot be set when labelSelector isn't set.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            mismatchLabelKeys:
+                              description: |-
+                                MismatchLabelKeys is a set of pod label keys to select which pods will
+                                be taken into consideration. The keys are used to lookup values from the
+                                incoming pod labels, those key-value labels are merged with `labelSelector` as `key notin (value)`
+                                to select the group of existing pods which pods will be taken into consideration
+                                for the incoming pod's pod (anti) affinity. Keys that don't exist in the incoming
+                                pod labels will be ignored. The default value is empty.
+                                The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
+                                Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            namespaceSelector:
+                              description: |-
+                                A label query over the set of namespaces that the term applies to.
+                                The term is applied to the union of the namespaces selected by this field
+                                and the ones listed in the namespaces field.
+                                null selector and null or empty namespaces list means "this pod's namespace".
+                                An empty selector ({}) matches all namespaces.
+                              properties:
+                                matchExpressions:
+                                  description: matchExpressions is a list of label
+                                    selector requirements. The requirements are ANDed.
+                                  items:
+                                    description: |-
+                                      A label selector requirement is a selector that contains values, a key, and an operator that
+                                      relates the key and values.
+                                    properties:
+                                      key:
+                                        description: key is the label key that the
+                                          selector applies to.
+                                        type: string
+                                      operator:
+                                        description: |-
+                                          operator represents a key's relationship to a set of values.
+                                          Valid operators are In, NotIn, Exists and DoesNotExist.
+                                        type: string
+                                      values:
+                                        description: |-
+                                          values is an array of string values. If the operator is In or NotIn,
+                                          the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                          the values array must be empty. This array is replaced during a strategic
+                                          merge patch.
+                                        items:
+                                          type: string
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                    required:
+                                    - key
+                                    - operator
+                                    type: object
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                                matchLabels:
+                                  additionalProperties:
+                                    type: string
+                                  description: |-
+                                    matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                    map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                    operator is "In", and the values array contains only "value". The requirements are ANDed.
+                                  type: object
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            namespaces:
+                              description: |-
+                                namespaces specifies a static list of namespace names that the term applies to.
+                                The term is applied to the union of the namespaces listed in this field
+                                and the ones selected by namespaceSelector.
+                                null or empty namespaces list and null namespaceSelector means "this pod's namespace".
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            topologyKey:
+                              description: |-
+                                This pod should be co-located (affinity) or not co-located (anti-affinity) with the pods matching
+                                the labelSelector in the specified namespaces, where co-located is defined as running on a node
+                                whose value of the label with key topologyKey matches that of any node on which any of the
+                                selected pods is running.
+                                Empty topologyKey is not allowed.
+                              type: string
+                          required:
+                          - topologyKey
+                          type: object
+                        weight:
+                          description: |-
+                            weight associated with matching the corresponding podAffinityTerm,
+                            in the range 1-100.
+                          format: int32
+                          type: integer
+                      required:
+                      - podAffinityTerm
+                      - weight
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    description: |-
+                      If the affinity requirements specified by this field are not met at
+                      scheduling time, the pod will not be scheduled onto the node.
+                      If the affinity requirements specified by this field cease to be met
+                      at some point during pod execution (e.g. due to a pod label update), the
+                      system may or may not try to eventually evict the pod from its node.
+                      When there are multiple elements, the lists of nodes corresponding to each
+                      podAffinityTerm are intersected, i.e. all terms must be satisfied.
+                    items:
+                      description: |-
+                        Defines a set of pods (namely those matching the labelSelector
+                        relative to the given namespace(s)) that this pod should be
+                        co-located (affinity) or not co-located (anti-affinity) with,
+                        where co-located is defined as running on a node whose value of
+                        the label with key <topologyKey> matches that of any node on which
+                        a pod of the set of pods is running
+                      properties:
+                        labelSelector:
+                          description: |-
+                            A label query over a set of resources, in this case pods.
+                            If it's null, this PodAffinityTerm matches with no Pods.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        matchLabelKeys:
+                          description: |-
+                            MatchLabelKeys is a set of pod label keys to select which pods will
+                            be taken into consideration. The keys are used to lookup values from the
+                            incoming pod labels, those key-value labels are merged with `labelSelector` as `key in (value)`
+                            to select the group of existing pods which pods will be taken into consideration
+                            for the incoming pod's pod (anti) affinity. Keys that don't exist in the incoming
+                            pod labels will be ignored. The default value is empty.
+                            The same key is forbidden to exist in both matchLabelKeys and labelSelector.
+                            Also, matchLabelKeys cannot be set when labelSelector isn't set.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        mismatchLabelKeys:
+                          description: |-
+                            MismatchLabelKeys is a set of pod label keys to select which pods will
+                            be taken into consideration. The keys are used to lookup values from the
+                            incoming pod labels, those key-value labels are merged with `labelSelector` as `key notin (value)`
+                            to select the group of existing pods which pods will be taken into consideration
+                            for the incoming pod's pod (anti) affinity. Keys that don't exist in the incoming
+                            pod labels will be ignored. The default value is empty.
+                            The same key is forbidden to exist in both mismatchLabelKeys and labelSelector.
+                            Also, mismatchLabelKeys cannot be set when labelSelector isn't set.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        namespaceSelector:
+                          description: |-
+                            A label query over the set of namespaces that the term applies to.
+                            The term is applied to the union of the namespaces selected by this field
+                            and the ones listed in the namespaces field.
+                            null selector and null or empty namespaces list means "this pod's namespace".
+                            An empty selector ({}) matches all namespaces.
+                          properties:
+                            matchExpressions:
+                              description: matchExpressions is a list of label selector
+                                requirements. The requirements are ANDed.
+                              items:
+                                description: |-
+                                  A label selector requirement is a selector that contains values, a key, and an operator that
+                                  relates the key and values.
+                                properties:
+                                  key:
+                                    description: key is the label key that the selector
+                                      applies to.
+                                    type: string
+                                  operator:
+                                    description: |-
+                                      operator represents a key's relationship to a set of values.
+                                      Valid operators are In, NotIn, Exists and DoesNotExist.
+                                    type: string
+                                  values:
+                                    description: |-
+                                      values is an array of string values. If the operator is In or NotIn,
+                                      the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                      the values array must be empty. This array is replaced during a strategic
+                                      merge patch.
+                                    items:
+                                      type: string
+                                    type: array
+                                    x-kubernetes-list-type: atomic
+                                required:
+                                - key
+                                - operator
+                                type: object
+                              type: array
+                              x-kubernetes-list-type: atomic
+                            matchLabels:
+                              additionalProperties:
+                                type: string
+                              description: |-
+                                matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                                map is equivalent to an element of matchExpressions, whose key field is "key", the
+                                operator is "In", and the values array contains only "value". The requirements are ANDed.
+                              type: object
+                          type: object
+                          x-kubernetes-map-type: atomic
+                        namespaces:
+                          description: |-
+                            namespaces specifies a static list of namespace names that the term applies to.
+                            The term is applied to the union of the namespaces listed in this field
+                            and the ones selected by namespaceSelector.
+                            null or empty namespaces list and null namespaceSelector means "this pod's namespace".
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        topologyKey:
+                          description: |-
+                            This pod should be co-located (affinity) or not co-located (anti-affinity) with the pods matching
+                            the labelSelector in the specified namespaces, where co-located is defined as running on a node
+                            whose value of the label with key topologyKey matches that of any node on which any of the
+                            selected pods is running.
+                            Empty topologyKey is not allowed.
+                          type: string
+                      required:
+                      - topologyKey
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                type: object
+            required:
+            - cpu
+            - memory
+            - networks
+            - sshKeyPair
+            - sshUser
+            - volumes
+            type: object
+          status:
+            description: HarvesterMachineStatus defines the observed state of HarvesterMachine.
+            properties:
+              addresses:
+                items:
+                  description: MachineAddress contains information for the node's
+                    address.
+                  properties:
+                    address:
+                      description: address is the machine address.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    type:
+                      description: type is the machine address type, one of Hostname,
+                        ExternalIP, InternalIP, ExternalDNS or InternalDNS.
+                      enum:
+                      - Hostname
+                      - ExternalIP
+                      - InternalIP
+                      - ExternalDNS
+                      - InternalDNS
+                      type: string
+                  required:
+                  - address
+                  - type
+                  type: object
+                type: array
+              allocatedIPAddress:
+                description: AllocatedIPAddress is the IP address allocated from the
+                  VM IP pool for this machine.
+                type: string
+              allocatedPoolRef:
+                description: |-
+                  AllocatedPoolRef is the name of the IPPool from which AllocatedIPAddress was allocated.
+                  Used for accurate release when multiple pools are configured.
+                type: string
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              failureDomain:
+                description: |-
+                  FailureDomain reports the failure domain the machine was placed in
+                  (CAPI contract field, mirrored to Machine.status.failureDomain).
+                type: string
+              initialization:
+                description: |-
+                  Initialization provides the CAPI v1beta2 contract readiness field
+                  (status.initialization.provisioned), kept in sync with status.ready (v1beta1 contract).
+                properties:
+                  provisioned:
+                    description: Provisioned shows if the resource has been provisioned.
                     type: boolean
                 type: object
               ready:

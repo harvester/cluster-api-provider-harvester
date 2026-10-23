@@ -104,6 +104,9 @@ jobs:
       run: |
         REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-build-all
         REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-push-all
+        # publish commands accepts docker login credentials as OCI_USERNAME and OCI_PASSWORD
+        export OCI_USERNAME=${oci_username}
+        export OCI_PASSWORD=${oci_password}g
         REGISTRY=${name} CHART_TAG=${chart_tag} PULL_POLICY=${pull_policy} TAG=${image_tag} make docker-push-chart
         # Fetch and export the top-level multi-arch manifest digest
         MANIFEST_DIGEST=$(docker buildx imagetools inspect "$name/${{ env.ORG }}/${{ env.IMAGE_NAME }}:$image_tag" --format '{{.Manifest.Digest}}')
@@ -115,6 +118,8 @@ jobs:
         chart_tag: ${{ steps.registry.outputs.chart_tag }}
         pull_policy: ${{ steps.registry.outputs.pull_policy }}
         image_tag: ${{ steps.registry.outputs.image_tag }}
+        oci_username: ${{ startsWith(github.ref, 'refs/tags/') && env.PRIME_REGISTRY_USERNAME || env.STAGING_REGISTRY_USERNAME }}
+        oci_password: ${{ startsWith(github.ref, 'refs/tags/') && env.PRIME_REGISTRY_PASSWORD || env.STAGING_REGISTRY_PASSWORD }}
 
     - name: Sign container image with cosign (keyless OIDC)
       env:
@@ -159,6 +164,12 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
+        # Determine if the tag requires a prerelease flag
+        if [[ "${{ github.ref_name }}" == *"dev"* || "${{ github.ref_name }}" == *"rc"* ]]; then
+          EXTRA_FLAGS="--prerelease"
+        else
+          EXTRA_FLAGS=""
+        fi
         # gh release view also resolves drafts: only a published release counts.
         if [ "$(gh release view ${{ github.ref_name }} --json isDraft --jq .isDraft 2>/dev/null)" = "false" ]; then
           echo "${{ github.ref_name }} is already published (immutable), nothing to do"
@@ -173,7 +184,7 @@ jobs:
         if [ -n "$STALE_ID" ]; then
           gh api -X DELETE repos/${{ github.repository }}/releases/$STALE_ID
         fi
-        gh release create ${{ github.ref_name }} --draft --generate-notes \
+        gh release create ${{ github.ref_name }} --draft --generate-notes $EXTRA_FLAGS \
           out/cluster-template.yaml out/cluster-template-dhcp.yaml \
           out/clusterclass-harvester-rke2.yaml
         # The list API lags slightly behind the creation: retry the id lookup.
