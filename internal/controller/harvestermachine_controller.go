@@ -90,16 +90,6 @@ const (
 	requeueDelay           = 10 * time.Second
 )
 
-var (
-	machineInitializationProvisioned = infrav1.Initialization{
-		Provisioned: true,
-	}
-
-	machineInitializationNotProvisioned = infrav1.Initialization{
-		Provisioned: false,
-	}
-)
-
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=harvestermachines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=harvestermachines/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=harvestermachines/finalizers,verbs=update
@@ -136,7 +126,7 @@ func (r *HarvesterMachineReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	// Always attempt to Patch the HarvesterMachine object and status after each reconciliation.
 	defer func() {
-		syncInitializationWithReady(hvMachine)
+		markProvisionedOnceReady(hvMachine.Status.Ready, &hvMachine.Status.Initialization)
 
 		err := patchHelper.Patch(ctx,
 			hvMachine,
@@ -234,14 +224,15 @@ func (r *HarvesterMachineReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	return r.ReconcileNormal(&hvScope) //nolint:contextcheck
 }
 
-// syncInitializationWithReady mirrors status.ready (v1beta1 contract) into
-// status.initialization.provisioned (v1beta2 contract). CAPI reads whichever field matches
-// the CRD's contract label, v1beta2 (initialization.provisioned) with the current labels:
-// a machine reporting ready without initialization.provisioned stays Provisioning forever.
-// Called at the single point where the status is patched, so that no reconcile path can
-// leave the two fields diverging.
-func syncInitializationWithReady(hvMachine *infrav1.HarvesterMachine) {
-	hvMachine.Status.Initialization.Provisioned = hvMachine.Status.Ready
+// markProvisionedOnceReady sets status.initialization.provisioned (v1beta2 contract) the
+// first time status.ready (v1beta1 contract) is true, and never clears it: Cluster API only
+// uses provisioned for the initial provisioning and latches InfrastructureProvisioned, while
+// ready keeps following the current state. CAPK and CAPV set it the same way. Called where
+// the status is patched, so that no reconcile path can miss it.
+func markProvisionedOnceReady(ready bool, initialization *infrav1.Initialization) {
+	if ready {
+		initialization.Provisioned = true
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -303,7 +294,6 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 		controllerutil.AddFinalizer(hvScope.HarvesterMachine, infrav1.MachineFinalizer)
 
 		hvScope.HarvesterMachine.Status.Ready = false
-		hvScope.HarvesterMachine.Status.Initialization = machineInitializationNotProvisioned
 
 		return ctrl.Result{}, nil
 	}
@@ -316,7 +306,6 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 		logger.Info("Waiting for Infrastructure to be ready ... ")
 
 		hvScope.HarvesterMachine.Status.Ready = false
-		hvScope.HarvesterMachine.Status.Initialization = machineInitializationNotProvisioned
 
 		conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
 			Type:    infrav1.InfrastructureReadyCondition,
@@ -341,7 +330,6 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 		logger.Info("Waiting for Machine's Userdata to be set ... ")
 
 		hvScope.HarvesterMachine.Status.Ready = false
-		hvScope.HarvesterMachine.Status.Initialization = machineInitializationNotProvisioned
 
 		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
@@ -397,7 +385,6 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 		logger.Error(err, "unable to check existence of VM from Harvester")
 
 		hvScope.HarvesterMachine.Status.Ready = false
-		hvScope.HarvesterMachine.Status.Initialization = machineInitializationNotProvisioned
 
 		return ctrl.Result{}, err
 	}
@@ -417,7 +404,6 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 			ipAddresses, err := getIPAddressesFromVMI(hvScope.Ctx, existingVM, hvScope.HarvesterClient)
 			if err != nil {
 				hvScope.HarvesterMachine.Status.Ready = false
-				hvScope.HarvesterMachine.Status.Initialization = machineInitializationNotProvisioned
 
 				if apierrors.IsNotFound(err) {
 					logger.Info("VM is not running yet, waiting for it to be ready")
@@ -432,18 +418,20 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 
 			hvScope.HarvesterMachine.Status.Addresses = ipAddresses
 
-			if len(ipAddresses) == 0 && hvScope.HarvesterMachine.Status.Ready {
+			// A VMI that is not scheduled yet, or whose guest has not configured
+			// its network, reports no address: the machine is not ready.
+			if len(ipAddresses) == 0 {
 				hvScope.HarvesterMachine.Status.Ready = false
-				hvScope.HarvesterMachine.Status.Initialization = machineInitializationNotProvisioned
 
-				return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+				logger.V(1).Info("Waiting for the VM to report an IP address")
+
+				return ctrl.Result{RequeueAfter: requeueDelay}, nil
 			}
 
 			if len(ipAddresses) > 0 && !hvScope.HarvesterMachine.Status.Ready {
 				logger.Info("VM is running, IP addresses found", "addresses", ipAddresses)
 
 				hvScope.HarvesterMachine.Status.Ready = true
-				hvScope.HarvesterMachine.Status.Initialization = machineInitializationProvisioned
 				conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
 					Type:   infrav1.VMProvisioningReadyCondition,
 					Status: metav1.ConditionTrue,
@@ -461,8 +449,6 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 
 				if providerID != "" {
 					hvScope.HarvesterMachine.Spec.ProviderID = providerID
-					hvScope.HarvesterMachine.Status.Ready = true
-					hvScope.HarvesterMachine.Status.Initialization = machineInitializationProvisioned
 				} else {
 					logger.Info("Waiting for ProviderID to be set on Node resource in Workload Cluster ...")
 
@@ -536,22 +522,25 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 				logger.Error(err, "failed to update HarvesterCluster Conditions with InitMachineCreatedCondition")
 			}
 		}
-	} else {
-		if !vmExists {
-			hvScope.HarvesterMachine.Status.Ready = false
-			conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
-				Type:    infrav1.MachineCreatedCondition,
-				Status:  metav1.ConditionFalse,
-				Reason:  infrav1.MachineNotFoundReason,
-				Message: "VM not found in Harvester",
-			})
 
-			return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
-		}
+		// The VM has just been created: the machine becomes ready once its VM runs and
+		// reports an address, which the next reconciles check.
+		return ctrl.Result{RequeueAfter: requeueDelay}, nil
+	}
+
+	if !vmExists {
+		hvScope.HarvesterMachine.Status.Ready = false
+		conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
+			Type:    infrav1.MachineCreatedCondition,
+			Status:  metav1.ConditionFalse,
+			Reason:  infrav1.MachineNotFoundReason,
+			Message: "VM not found in Harvester",
+		})
+
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 	}
 
 	hvScope.HarvesterMachine.Status.Ready = true
-	hvScope.HarvesterMachine.Status.Initialization = machineInitializationProvisioned
 
 	// Initialize workload cluster node: set providerID and remove uninitialized taint.
 	// This bypasses the cloud-provider bootstrap chicken-and-egg problem.
