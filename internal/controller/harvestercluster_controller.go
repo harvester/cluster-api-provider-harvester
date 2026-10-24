@@ -116,7 +116,6 @@ type ClusterScope struct {
 // Reconcile reads that state of the cluster for a HarvesterCluster object and makes changes based on the state read.
 func (r *HarvesterClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Reconciling HarvesterCluster", "cluster-name", req.Name, "cluster-namespace", req.Namespace)
 
 	var cluster infrav1.HarvesterCluster
 
@@ -134,6 +133,8 @@ func (r *HarvesterClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		return ctrl.Result{}, err
 	}
+
+	logger.V(1).Info("Reconciling HarvesterCluster")
 
 	patchHelper, err := patch.NewHelper(&cluster, r.Client)
 	if err != nil {
