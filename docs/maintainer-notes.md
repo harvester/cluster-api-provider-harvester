@@ -138,10 +138,10 @@ week. Two operational notes:
 
 ## Known limitations and deferred work
 
-- **Failure domain spread has never been exercised on a multi-host Harvester**
-  (development happened against a single-node cluster): discovery, publication,
-  assignment and affinity are validated end to end, but an actual multi-host
-  spread deserves a validation run on real hardware
+- **Failure domain spread was exercised on a nested three-host Harvester only**:
+  per-host domains are published, and a VM required to stay on its host blocked
+  the maintenance mode of that host, hence the preferred affinity for per-host
+  domains. A spread across labeled zones on real hardware is still to validate
   ([#237](https://github.com/harvester/cluster-api-provider-harvester/issues/237)
   asked for community feedback).
 - The shipped ClusterClass's load balancer defaults to `ipamType: dhcp`;
