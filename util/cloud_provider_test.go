@@ -163,6 +163,44 @@ var _ = Describe("ChangeValueInConfigMapInYAML", func() {
 			}
 		}
 	})
+
+	It("Should replace the Secret when other objects come before it", func() {
+		// The layout of the harvester-cloud-provider-deploy.yaml key of the kubeadm template.
+		manifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: harvester-cloud-controller-manager
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: harvester-cloud-controller-manager
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloud-config
+  namespace: kube-system
+type: Opaque
+data:
+  cloud-config: cGxhY2Vob2xkZXI=
+`
+		modifiedYAMLString, err := ModifyYAMlString(manifest, "cloud-config", "kube-system", "cloud-config", []byte("new-value"))
+		Expect(err).ToNot(HaveOccurred())
+
+		documents := strings.Split(modifiedYAMLString, "---")
+		Expect(documents).To(HaveLen(3))
+		Expect(documents[0]).To(ContainSubstring("kind: Deployment"))
+		Expect(documents[1]).To(ContainSubstring("kind: ServiceAccount"))
+
+		var secret *corev1.Secret
+
+		err = yaml.Unmarshal([]byte(documents[2]), &secret)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(secret.Data["cloud-config"]).To(Equal([]byte("new-value")))
+	})
 })
 
 var _ = Describe("AddSecretToConfigMap", func() {
