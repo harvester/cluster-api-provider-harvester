@@ -5,6 +5,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.22.0
   name: harvesterclusters.infrastructure.cluster.x-k8s.io
+  labels: 
+    {{- toYaml .Values.capiConversionLabels | nindent 4 }}
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:

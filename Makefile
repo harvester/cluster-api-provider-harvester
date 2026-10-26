@@ -425,6 +425,6 @@ docker-push-chart:  yq helm cluster-api-operator## Package chart and push it to 
 		rm -rf /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG); \
 	fi ; \
 	mkdir -p /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG) ;\
-	helm template  --include-crds chart/caphv --set image.tag=$(TAG) --set image.pullPolicy=$(PULL_POLICY) --set image.repository=$(IMG) > /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG)/infrastructure-components.yaml ;\
+	helm template chart/caphv --set image.tag=$(TAG) --set image.pullPolicy=$(PULL_POLICY) --set image.repository=$(IMG) > /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG)/infrastructure-components.yaml ;\
 	cp metadata.yaml /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG) ;\
 	$(LOCALBIN)/plugin publish -u $(REGISTRY)/$(ORG)/$(CHART_IMAGE_NAME):$(CHART_TAG) -d /tmp/$(CHART_IMAGE_NAME)/$(CHART_TAG)
