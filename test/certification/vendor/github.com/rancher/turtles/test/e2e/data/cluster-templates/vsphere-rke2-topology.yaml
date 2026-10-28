@@ -1,0 +1,133 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: VSphereClusterIdentity
+metadata:
+  name: cluster-identity
+spec:
+  secretName: cluster-identity
+  allowedNamespaces:
+    selector:
+      matchLabels: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: '${CLUSTER_NAME}-docker-token'
+  namespace: '${NAMESPACE}'
+type: Opaque
+stringData:
+  username: "${DOCKER_REGISTRY_USERNAME}"
+  password: "${DOCKER_REGISTRY_TOKEN}"
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: '${CLUSTER_NAME}'
+  namespace: '${NAMESPACE}'
+  labels:
+    cni: calico
+    csi: vsphere
+    cloud-provider: vsphere
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 192.168.0.0/16
+  topology:
+    classRef:
+      name: vsphere-rke2-example
+      namespace: ${TOPOLOGY_NAMESPACE}
+    version: ${RKE2_KUBERNETES_VERSION}
+    controlPlane:
+      replicas: ${CONTROL_PLANE_MACHINE_COUNT}
+    workers:
+      machineDeployments:
+      - class: vsphere-rke2-example-worker
+        name: md-0
+        replicas: ${WORKER_MACHINE_COUNT}
+    variables:
+    - name: vSphereClusterIdentityName
+      value: cluster-identity
+    - name: vSphereTLSThumbprint
+      value: '${VSPHERE_TLS_THUMBPRINT}'
+    - name: vSphereDataCenter
+      value: '${VSPHERE_DATACENTER}'
+    - name: vSphereDataStore
+      value: '${VSPHERE_DATASTORE}'
+    - name: vSphereFolder
+      value: '${VSPHERE_FOLDER}'
+    - name: vSphereNetwork
+      value: '${VSPHERE_NETWORK}'
+    - name: vSphereResourcePool
+      value: '${VSPHERE_RESOURCE_POOL}'
+    - name: vSphereServer
+      value: '${VSPHERE_SERVER}'
+    - name: vSphereTemplate
+      value: '${VSPHERE_TEMPLATE}'
+    - name: controlPlaneIpAddr
+      value: '${VSPHERE_KUBE_VIP_IP_RKE2}'
+    - name: controlPlanePort
+      value: 6443
+    - name: kubeVIPInterface
+      value: eth0
+    - name: dockerAuthSecret
+      value: '${CLUSTER_NAME}-docker-token'
+---
+kind: Bundle
+apiVersion: fleet.cattle.io/v1alpha1
+metadata:
+  name: vsphere-csi-config
+  namespace: '${NAMESPACE}'
+spec:
+  resources:
+  - content: |-
+      apiVersion: v1
+      kind: Secret
+      type: Opaque
+      metadata:
+        name: vsphere-config-secret
+        namespace: vmware-system-csi
+      stringData:
+        csi-vsphere.conf: |+
+          [Global]
+          thumbprint = "${VSPHERE_TLS_THUMBPRINT}"
+
+          [VirtualCenter "${VSPHERE_SERVER}"]
+          user = "${VSPHERE_USERNAME}"
+          password = "${VSPHERE_PASSWORD}"
+          datacenters = "${VSPHERE_DATACENTER}"
+
+          [Network]
+          public-network = "${VSPHERE_NETWORK}"
+
+          [Labels]
+          region = ""
+          zone = ""
+  targets:
+  - clusterSelector:
+      matchLabels:
+        csi: vsphere
+        cluster.x-k8s.io/cluster-name: '${CLUSTER_NAME}'
+---
+kind: Bundle
+apiVersion: fleet.cattle.io/v1alpha1
+metadata:
+  name: vsphere-cloud-credentials
+  namespace: '${NAMESPACE}'
+spec:
+  resources:
+  - content: |-
+      apiVersion: v1
+      kind: Secret
+      type: Opaque
+      metadata:
+        name: vsphere-cloud-secret
+        namespace: kube-system
+      stringData:
+        ${VSPHERE_SERVER}.password: "${VSPHERE_PASSWORD}"
+        ${VSPHERE_SERVER}.username: "${VSPHERE_USERNAME}"
+  targets:
+  - clusterSelector:
+      matchLabels:
+        cloud-provider: vsphere
+        cluster.x-k8s.io/cluster-name: '${CLUSTER_NAME}'
+---
