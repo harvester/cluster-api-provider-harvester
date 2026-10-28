@@ -86,6 +86,20 @@ var _ = Describe("IP Pool Store", func() {
 			Expect(pool.Status.Allocated).To(HaveLen(2))
 			Expect(pool.Status.Available).To(Equal(int64(8)))
 		})
+
+		It("should remove the reserved IP from the history of its previous owner", func() {
+			// As the Harvester load balancer store does (pkg/ipam/store), so that the
+			// previous owner no longer asks for an address given to someone else.
+			pool.Status.AllocatedHistory = map[string]string{
+				"172.16.3.40": "machine-old",
+				"172.16.3.41": "machine-other",
+			}
+
+			ok, err := store.Reserve("machine-1", "", net.ParseIP("172.16.3.40"), "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ok).To(BeTrue())
+			Expect(pool.Status.AllocatedHistory).To(Equal(map[string]string{"172.16.3.41": "machine-other"}))
+		})
 	})
 
 	Describe("LastReservedIP", func() {
@@ -519,5 +533,25 @@ var _ = Describe("AllocateVMIPFromPool with history", func() {
 		ip, err := AllocateVMIPFromPool(pool, "machine-reuse")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(ip).To(Equal("192.168.1.15"))
+	})
+
+	It("should allocate a free address when the historical one was given to another machine", func() {
+		// An entry left in the history by a provider version that did not remove the
+		// reserved address from it.
+		pool := &lbv1beta1.IPPool{
+			Spec: lbv1beta1.IPPoolSpec{
+				Ranges: []lbv1beta1.Range{
+					{Subnet: "192.168.1.0/24", RangeStart: "192.168.1.10", RangeEnd: "192.168.1.20"},
+				},
+			},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated:        map[string]string{"192.168.1.15": "other-machine"},
+				AllocatedHistory: map[string]string{"192.168.1.15": "machine-reuse"},
+			},
+		}
+
+		ip, err := AllocateVMIPFromPool(pool, "machine-reuse")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(ip).To(Equal("192.168.1.10"))
 	})
 })
