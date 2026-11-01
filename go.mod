@@ -143,7 +143,7 @@ replace (
 // (uses structured-merge-diff/v6 to match the newer apimachinery internals).
 replace k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912
 
-replace github.com/harvester/harvester => github.com/harvester/harvester v1.4.0
+replace github.com/harvester/harvester => github.com/harvester/harvester v1.4.1
 
 // Pin all k8s.io modules to v0.34.x — required since transitive deps
 // (kubevirt, harvester, longhorn) pull k8s.io/api >= v0.36 which requires
