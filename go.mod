@@ -126,7 +126,7 @@ require (
 	k8s.io/apiserver v0.36.2 // indirect
 	k8s.io/component-base v0.36.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
-	k8s.io/kube-openapi v0.0.0-20260603220949-865597e52e25 // indirect
+	k8s.io/kube-openapi v0.30.0 // indirect
 	k8s.io/kubernetes v1.36.2 // indirect
 	kubevirt.io/containerized-data-importer-api v1.64.0 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
@@ -143,7 +143,7 @@ replace (
 // (uses structured-merge-diff/v6 to match the newer apimachinery internals).
 replace k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20250910181357-589584f1c912
 
-replace github.com/harvester/harvester => github.com/harvester/harvester v1.4.0-dev-20240719
+replace github.com/harvester/harvester => github.com/harvester/harvester v1.4.0
 
 // Pin all k8s.io modules to v0.34.x — required since transitive deps
 // (kubevirt, harvester, longhorn) pull k8s.io/api >= v0.36 which requires
