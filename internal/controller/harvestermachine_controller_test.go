@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/utils/ptr"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -3471,24 +3473,65 @@ var _ = Describe("releaseVMIP", func() {
 		}
 
 		r := &HarvesterMachineReconciler{}
-		r.releaseVMIP(scope)
-		// No error return - it's best-effort. Verify pool was updated.
+		Expect(r.releaseVMIP(scope)).To(Succeed())
+
+		updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), "capi-vm-pool", metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updatedPool.Status.Allocated).ToNot(HaveKey("172.16.3.40"))
 	})
 
-	It("should skip release when no IP allocated", func() {
-		hvClient := hvfake.NewSimpleClientset()
-		logger := log.FromContext(context.TODO())
-
-		scope := &Scope{
-			HarvesterMachine: &infrav1.HarvesterMachine{
-				Status: infrav1.HarvesterMachineStatus{AllocatedIPAddress: ""},
+	It("should release by owner when the status lost the address", func() {
+		// The status is not restored by clusterctl move: the pool still holds the
+		// address of the machine, which must be released all the same.
+		pool1 := &lbv1beta1.IPPool{ObjectMeta: metav1.ObjectMeta{Name: "pool-1"}}
+		pool2 := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "pool-2"},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"172.16.4.42": "test-ns/test-cp-0"},
+				Available: 9,
 			},
-			HarvesterClient: hvClient,
-			Logger:          &logger,
 		}
+		hvClient := hvfake.NewSimpleClientset(pool1, pool2)
+		scope := releaseScope(hvClient)
+		scope.HarvesterMachine.Status = infrav1.HarvesterMachineStatus{}
+		scope.HarvesterCluster.Spec.VMNetworkConfig = &infrav1.VMNetworkConfig{IPPoolRefs: []string{"pool-1", "pool-2"}}
 
 		r := &HarvesterMachineReconciler{}
-		r.releaseVMIP(scope) // should return immediately
+		Expect(r.releaseVMIP(scope)).To(Succeed())
+
+		updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), "pool-2", metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updatedPool.Status.Allocated).To(BeEmpty())
+		Expect(updatedPool.Status.Available).To(Equal(int64(10)))
+	})
+
+	It("should release the addresses the machine holds in every pool", func() {
+		// The status records .40 from pool-1, but the machine also holds .60 in
+		// pool-2 (allocated while its status was lost): both are released.
+		pool1 := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "pool-1"},
+			Status:     lbv1beta1.IPPoolStatus{Allocated: map[string]string{"172.16.3.40": "test-ns/test-cp-0"}},
+		}
+		pool2 := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "pool-2"},
+			Status:     lbv1beta1.IPPoolStatus{Allocated: map[string]string{"172.16.3.60": "test-ns/test-cp-0"}},
+		}
+		hvClient := hvfake.NewSimpleClientset(pool1, pool2)
+		scope := releaseScope(hvClient)
+		scope.HarvesterMachine.Status.AllocatedPoolRef = "pool-1"
+		scope.HarvesterCluster.Spec.VMNetworkConfig = &infrav1.VMNetworkConfig{IPPoolRefs: []string{"pool-1", "pool-2"}}
+
+		r := &HarvesterMachineReconciler{}
+		Expect(r.releaseVMIP(scope)).To(Succeed())
+
+		for _, name := range []string{"pool-1", "pool-2"} {
+			updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), name, metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updatedPool.Status.Allocated).To(BeEmpty(), name)
+		}
+
+		Expect(scope.HarvesterCluster.Spec.VMNetworkConfig.IPPoolRefs).To(Equal([]string{"pool-1", "pool-2"}),
+			"the spec is left untouched")
 	})
 
 	It("should skip release when VMNetworkConfig is nil", func() {
@@ -3505,7 +3548,7 @@ var _ = Describe("releaseVMIP", func() {
 		}
 
 		r := &HarvesterMachineReconciler{}
-		r.releaseVMIP(scope) // should log and return
+		Expect(r.releaseVMIP(scope)).To(Succeed())
 	})
 
 	It("should handle invalid allocated IP gracefully", func() {
@@ -3542,7 +3585,7 @@ var _ = Describe("releaseVMIP", func() {
 		}
 
 		r := &HarvesterMachineReconciler{}
-		r.releaseVMIP(scope) // should log warning about invalid IP and return
+		Expect(r.releaseVMIP(scope)).To(Succeed())
 	})
 
 	It("should skip release when pool not found", func() {
@@ -3565,7 +3608,7 @@ var _ = Describe("releaseVMIP", func() {
 		}
 
 		r := &HarvesterMachineReconciler{}
-		r.releaseVMIP(scope) // should log warning and return
+		Expect(r.releaseVMIP(scope)).To(Succeed())
 	})
 
 	It("should release IP using AllocatedPoolRef", func() {
@@ -3605,7 +3648,7 @@ var _ = Describe("releaseVMIP", func() {
 		}
 
 		r := &HarvesterMachineReconciler{}
-		r.releaseVMIP(scope)
+		Expect(r.releaseVMIP(scope)).To(Succeed())
 		// Verify pool-2 was used (not pool-1)
 		updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), "pool-2", metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
@@ -3613,7 +3656,99 @@ var _ = Describe("releaseVMIP", func() {
 		_, exists := updatedPool.Status.Allocated["172.16.4.42"]
 		Expect(exists).To(BeFalse())
 	})
+
+	It("should release by owner, leaving an address now held by another machine", func() {
+		// The machine status still records .40, but the pool gave .40 to another
+		// machine since: only the allocations owned by this machine are released.
+		pool := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-vm-pool"},
+			Spec: lbv1beta1.IPPoolSpec{
+				Ranges: []lbv1beta1.Range{
+					{RangeStart: "172.16.3.40", RangeEnd: "172.16.3.49", Subnet: "172.16.0.0/16", Gateway: "172.16.0.1"},
+				},
+			},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"172.16.3.40": "test-ns/other-machine"},
+				Available: 9,
+			},
+		}
+		hvClient := hvfake.NewSimpleClientset(pool)
+		scope := releaseScope(hvClient)
+
+		r := &HarvesterMachineReconciler{}
+		Expect(r.releaseVMIP(scope)).To(Succeed())
+
+		updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), "capi-vm-pool", metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updatedPool.Status.Allocated).To(HaveKeyWithValue("172.16.3.40", "test-ns/other-machine"))
+		Expect(updatedPool.Status.Available).To(Equal(int64(9)))
+	})
+
+	It("should count a released address once when called again", func() {
+		pool := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-vm-pool"},
+			Spec: lbv1beta1.IPPoolSpec{
+				Ranges: []lbv1beta1.Range{
+					{RangeStart: "172.16.3.40", RangeEnd: "172.16.3.49", Subnet: "172.16.0.0/16", Gateway: "172.16.0.1"},
+				},
+			},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"172.16.3.40": "test-ns/test-cp-0"},
+				Available: 9,
+			},
+		}
+		hvClient := hvfake.NewSimpleClientset(pool)
+		scope := releaseScope(hvClient)
+
+		r := &HarvesterMachineReconciler{}
+		Expect(r.releaseVMIP(scope)).To(Succeed())
+		Expect(r.releaseVMIP(scope)).To(Succeed())
+
+		updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), "capi-vm-pool", metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updatedPool.Status.Allocated).To(BeEmpty())
+		Expect(updatedPool.Status.Available).To(Equal(int64(10)))
+	})
+
+	It("should return the error when the pool cannot be updated", func() {
+		pool := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-vm-pool"},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"172.16.3.40": "test-ns/test-cp-0"},
+			},
+		}
+		hvClient := hvfake.NewSimpleClientset(pool)
+		hvClient.PrependReactor("update", "ippools", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("conflict")
+		})
+		scope := releaseScope(hvClient)
+
+		r := &HarvesterMachineReconciler{}
+		Expect(r.releaseVMIP(scope)).To(MatchError(ContainSubstring("conflict")))
+	})
 })
+
+// releaseScope returns the scope of machine test-ns/test-cp-0, whose status records
+// 172.16.3.40 from pool capi-vm-pool.
+func releaseScope(hvClient *hvfake.Clientset) *Scope {
+	logger := log.FromContext(context.TODO())
+
+	return &Scope{
+		Ctx: context.TODO(),
+		HarvesterMachine: &infrav1.HarvesterMachine{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+			Status: infrav1.HarvesterMachineStatus{
+				AllocatedIPAddress: "172.16.3.40",
+				AllocatedPoolRef:   "capi-vm-pool",
+			},
+		},
+		HarvesterCluster: &infrav1.HarvesterCluster{
+			Spec: infrav1.HarvesterClusterSpec{TargetNamespace: "default"},
+		},
+		HarvesterClient: hvClient,
+		Logger:          &logger,
+	}
+}
 
 // =============================================================================
 // Tests for ReconcileDelete (requires fake HarvesterClient)
@@ -3772,5 +3907,83 @@ var _ = Describe("ReconcileDelete", func() {
 		_, err := r.ReconcileDelete(scope)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("unable to remove finalizer"))
+	})
+
+	It("should keep the IP allocated while the VM still exists", func() {
+		vm := &kubevirtv1.VirtualMachine{ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "default"}}
+		pool := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-vm-pool"},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"172.16.3.40": "test-ns/test-cp-0"},
+				Available: 9,
+			},
+		}
+		hvClient := hvfake.NewSimpleClientset(vm, pool)
+		// A VM being deleted stays until its VMI has terminated.
+		hvClient.PrependReactor("delete", "virtualmachines", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, nil
+		})
+		scope := releaseScope(hvClient)
+		scope.Cluster = &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"}}
+		scope.HarvesterMachine.Finalizers = []string{infrav1.MachineFinalizer}
+
+		r := &HarvesterMachineReconciler{}
+
+		// Two passes while the VM terminates: the guest may still use its address.
+		for range 2 {
+			result, err := r.ReconcileDelete(*scope)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		}
+
+		updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), "capi-vm-pool", metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updatedPool.Status.Allocated).To(HaveKeyWithValue("172.16.3.40", "test-ns/test-cp-0"))
+		Expect(updatedPool.Status.Available).To(Equal(int64(9)))
+	})
+
+	It("should release the IP once the VM is gone, then remove the finalizer", func() {
+		pool := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-vm-pool"},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"172.16.3.40": "test-ns/test-cp-0"},
+				Available: 9,
+			},
+		}
+		hvClient := hvfake.NewSimpleClientset(pool)
+		scope := releaseScope(hvClient)
+		scope.Cluster = &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"}}
+		scope.HarvesterMachine.Finalizers = []string{infrav1.MachineFinalizer}
+
+		r := &HarvesterMachineReconciler{}
+		_, err := r.ReconcileDelete(*scope)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(scope.HarvesterMachine.Finalizers).ToNot(ContainElement(infrav1.MachineFinalizer))
+
+		updatedPool, err := hvClient.LoadbalancerV1beta1().IPPools().Get(context.TODO(), "capi-vm-pool", metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(updatedPool.Status.Allocated).To(BeEmpty())
+		Expect(updatedPool.Status.Available).To(Equal(int64(10)))
+	})
+
+	It("should keep the finalizer and retry when the IP cannot be released", func() {
+		pool := &lbv1beta1.IPPool{
+			ObjectMeta: metav1.ObjectMeta{Name: "capi-vm-pool"},
+			Status: lbv1beta1.IPPoolStatus{
+				Allocated: map[string]string{"172.16.3.40": "test-ns/test-cp-0"},
+			},
+		}
+		hvClient := hvfake.NewSimpleClientset(pool)
+		hvClient.PrependReactor("update", "ippools", func(_ k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("conflict")
+		})
+		scope := releaseScope(hvClient)
+		scope.Cluster = &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: "test-ns"}}
+		scope.HarvesterMachine.Finalizers = []string{infrav1.MachineFinalizer}
+
+		r := &HarvesterMachineReconciler{}
+		_, err := r.ReconcileDelete(*scope)
+		Expect(err).To(MatchError(ContainSubstring("conflict")))
+		Expect(scope.HarvesterMachine.Finalizers).To(ContainElement(infrav1.MachineFinalizer))
 	})
 })

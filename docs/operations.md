@@ -528,7 +528,7 @@ CAPI cascades the deletion through the ownership chain:
 2. CAPHV deletes the Harvester VM for each Machine
 3. CAPHV deletes associated PVCs (all volumes)
 4. CAPHV deletes cloud-init secrets on Harvester
-5. CAPHV releases allocated IPs back to the IPPool
+5. CAPHV releases allocated IPs back to the IPPool once the VM is gone
 6. CAPI garbage-collects remaining objects (MachineSet, MachineDeployment, etc.)
 
 To verify cleanup is complete:
@@ -648,7 +648,7 @@ When a node becomes unhealthy:
    - Removes the etcd member from the cluster (for CP nodes, via `etcdctl member remove`)
    - Deletes the VM on Harvester
    - Deletes associated PVCs and cloud-init secrets
-   - Releases the IP back to the pool
+   - Releases the IP back to the pool once the VM is gone
 4. CAPI creates a replacement Machine
 5. CAPHV provisions a new VM with a new IP from the pool
 6. RKE2 installs, the node joins the cluster, and becomes Ready

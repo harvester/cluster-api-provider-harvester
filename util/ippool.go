@@ -94,28 +94,6 @@ func (s *Store) LastReservedIP(rangeID string) (net.IP, error) {
 	return net.ParseIP(s.Status.LastAllocated), nil
 }
 
-// Release releases the given IP address.
-// If the IP is not allocated, it does nothing.
-// If the IP is allocated, it removes it from the allocated list and increments the available count.
-func (s *Store) Release(ip net.IP) error {
-	if s.Status.Allocated == nil {
-		return nil
-	}
-
-	ipStr := ip.String()
-
-	if s.Status.AllocatedHistory == nil {
-		s.Status.AllocatedHistory = make(map[string]string)
-	}
-
-	s.Status.AllocatedHistory[ipStr] = s.Status.Allocated[ipStr]
-	delete(s.Status.Allocated, ipStr)
-
-	s.Status.Available++
-
-	return nil
-}
-
 // ReleaseByID releases all IP addresses allocated to the given ID.
 // It removes them from the allocated list and increments the available count.
 // It does nothing if the ID is not found in the allocated list.

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -1513,70 +1514,79 @@ func (r *HarvesterMachineReconciler) allocateVMIP(hvScope *Scope) error {
 	return errors.Wrap(lastErr, "all configured IP pools exhausted")
 }
 
-// releaseVMIP releases the allocated IP back to the pool during machine deletion.
-// Errors are logged as warnings but do not block deletion.
+// releaseVMIP releases the IP allocated to the machine once its VM is gone. It releases
+// by owner, like the Harvester load balancer IPAM, so that it never frees an address
+// the pool has given to another machine since, and releasing twice is a no-op. It looks
+// in every configured pool and in the pool recorded in the status, without relying on
+// the recorded address: the status is not restored by clusterctl move. A pool that no
+// longer exists is skipped; any other error is returned so that the release is retried
+// instead of leaking the address.
 //
 //nolint:funcorder
-func (r *HarvesterMachineReconciler) releaseVMIP(hvScope *Scope) {
+func (r *HarvesterMachineReconciler) releaseVMIP(hvScope *Scope) error {
 	machine := hvScope.HarvesterMachine
-	logger := hvScope.Logger
 
-	if machine.Status.AllocatedIPAddress == "" {
-		return
+	var poolRefs []string
+	if vmNetCfg := effectiveVMNetworkConfig(hvScope); vmNetCfg != nil {
+		poolRefs = slices.Clone(vmNetCfg.GetIPPoolRefs())
 	}
 
-	// Determine which pool to release from: use AllocatedPoolRef if available,
-	// fall back to first configured pool for backward compatibility.
-	vmNetCfg := effectiveVMNetworkConfig(hvScope)
+	if machine.Status.AllocatedPoolRef != "" && !slices.Contains(poolRefs, machine.Status.AllocatedPoolRef) {
+		poolRefs = append(poolRefs, machine.Status.AllocatedPoolRef)
+	}
 
-	poolRef := machine.Status.AllocatedPoolRef
-	if poolRef == "" && vmNetCfg != nil {
-		poolRefs := vmNetCfg.GetIPPoolRefs()
-		if len(poolRefs) > 0 {
-			poolRef = poolRefs[0]
+	machineID := machine.Namespace + "/" + machine.Name
+
+	for _, poolRef := range poolRefs {
+		err := r.releaseVMIPFromPool(hvScope, poolRef, machineID)
+		if err != nil {
+			return err
 		}
 	}
 
-	if poolRef == "" {
-		logger.Info("No pool reference for IP release, skipping")
+	return nil
+}
 
-		return
-	}
+// releaseVMIPFromPool releases the addresses that pool poolRef has allocated to machineID.
+//
+//nolint:funcorder
+func (r *HarvesterMachineReconciler) releaseVMIPFromPool(hvScope *Scope, poolRef, machineID string) error {
+	logger := hvScope.Logger
 
 	pool, err := hvScope.HarvesterClient.LoadbalancerV1beta1().IPPools().Get(
 		hvScope.Ctx, poolRef, metav1.GetOptions{})
-	if err != nil {
-		logger.Info("Warning: failed to get VM IP pool for release, skipping", "error", err)
+	if apierrors.IsNotFound(err) {
+		logger.Info("VM IP pool not found, nothing to release", "pool", poolRef)
 
-		return
+		return nil
+	}
+
+	if err != nil {
+		return errors.Wrapf(err, "failed to get VM IP pool %s for release", poolRef)
 	}
 
 	store := locutil.NewStore(pool)
-	ip := net.ParseIP(machine.Status.AllocatedIPAddress)
 
-	if ip == nil {
-		logger.Info("Warning: failed to parse allocated IP for release", "ip", machine.Status.AllocatedIPAddress)
-
-		return
+	ips := store.GetByID(machineID, "")
+	if len(ips) == 0 {
+		return nil
 	}
 
-	releaseErr := store.Release(ip)
-	if releaseErr != nil {
-		logger.Info("Warning: failed to release IP from pool", "error", releaseErr, "ip", machine.Status.AllocatedIPAddress)
-
-		return
+	err = store.ReleaseByID(machineID, "")
+	if err != nil {
+		return errors.Wrapf(err, "failed to release the IP of %s from pool %s", machineID, poolRef)
 	}
 
 	_, err = hvScope.HarvesterClient.LoadbalancerV1beta1().IPPools().Update(
 		hvScope.Ctx, pool, metav1.UpdateOptions{})
 	if err != nil {
-		logger.Info("Warning: failed to update pool after IP release", "error", err)
-
-		return
+		return errors.Wrapf(err, "failed to update VM IP pool %s after release", poolRef)
 	}
 
 	caphvmetrics.IPPoolReleasesTotal.Inc()
-	logger.Info("Released VM IP back to pool", "ip", machine.Status.AllocatedIPAddress, "machine", machine.Name)
+	logger.Info("Released VM IP back to pool", "ips", ips, "pool", poolRef, "machine", machineID)
+
+	return nil
 }
 
 // removeEtcdMemberIfControlPlane removes the etcd member for a control-plane machine
@@ -1627,9 +1637,6 @@ func (r *HarvesterMachineReconciler) ReconcileDelete(hvScope Scope) (res ctrl.Re
 	logger := log.FromContext(hvScope.Ctx)
 	logger.Info("Deleting HarvesterMachine ...")
 
-	// Release allocated IP back to pool before deletion
-	r.releaseVMIP(&hvScope)
-
 	// Remove etcd member from workload cluster before VM deletion (control-plane only)
 	r.removeEtcdMemberIfControlPlane(&hvScope)
 
@@ -1662,6 +1669,12 @@ func (r *HarvesterMachineReconciler) ReconcileDelete(hvScope Scope) (res ctrl.Re
 		// VM is gone — clean up any orphaned PVCs by name prefix
 		logger.Info("No VM found, cleaning up orphaned PVCs")
 		r.deletePVCsByPrefix(hvScope.Ctx, &hvScope, targetNS, machineName+"-disk-")
+
+		// Release the IP only now: while the VM terminates, the guest may still use it.
+		err = r.releaseVMIP(&hvScope)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	} else {
 		logger.V(5).Info("found VM: " + vm.Namespace + "/" + vm.Name)
 
