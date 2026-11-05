@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Stopped VM reported ready (regression since v0.10.1)**: when the VM of a
+  ready machine was stopped, from the Harvester UI or by Harvester when the
+  namespace resource quota is exceeded, the machine kept `ready: true`. v0.10.1
+  set it to false; the reset was lost in a later refactoring. It is restored.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to

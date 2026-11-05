@@ -476,6 +476,10 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 				})
 			}
 		} else {
+			// The VM was stopped, from the Harvester UI or by Harvester itself (namespace
+			// resource quota exceeded): the machine is not ready until it runs again.
+			hvScope.HarvesterMachine.Status.Ready = false
+
 			return ctrl.Result{RequeueAfter: requeueTimeShort}, nil
 		}
 	}
