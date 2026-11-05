@@ -6,6 +6,14 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Empty `controlPlaneEndpoint` in converted objects**: a HarvesterCluster or
+  HarvesterClusterTemplate without an endpoint was serialized with
+  `controlPlaneEndpoint: {}` by the conversion webhook, which the CAPI
+  `APIEndpoint` schema rejects (`should have at least 1 properties`). A
+  ClusterClass referencing such a template could not create its
+  HarvesterCluster. The field is now omitted when empty, as the infrastructure
+  cluster contract prescribes. Objects already stored with the empty object
+  keep it until they are recreated.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to

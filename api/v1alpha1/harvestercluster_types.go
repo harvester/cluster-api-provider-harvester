@@ -132,7 +132,7 @@ type HarvesterClusterSpec struct {
 
 	// ControlPlaneEndpoint represents the endpoint used to communicate with the control plane.
 	// +optional
-	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
+	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint,omitempty,omitzero"`
 
 	// TargetNamespace is the namespace on the Harvester cluster where VMs, Load Balancers, etc. should be created.
 	TargetNamespace string `json:"targetNamespace"`
