@@ -79,12 +79,15 @@ var _ = Describe("HarvesterMachine initialization.provisioned (v1beta2 contract)
 		Expect(hvMachine.Status.Initialization.Provisioned).To(BeFalse())
 	})
 
-	It("clears a stale provisioned flag when the machine is not ready", func(ctx SpecContext) {
+	It("keeps provisioned once set, even when the machine is no longer ready", func(ctx SpecContext) {
+		// provisioned only orchestrates the initial provisioning (Cluster API latches
+		// InfrastructureProvisioned), so it is never cleared, as in CAPK and CAPV.
 		hvMachine := reconcileMachine(ctx, infrav1.HarvesterMachineStatus{
 			Ready:          false,
 			Initialization: infrav1.Initialization{Provisioned: true},
 		})
 
-		Expect(hvMachine.Status.Initialization.Provisioned).To(BeFalse())
+		Expect(hvMachine.Status.Ready).To(BeFalse())
+		Expect(hvMachine.Status.Initialization.Provisioned).To(BeTrue())
 	})
 })

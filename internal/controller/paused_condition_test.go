@@ -58,6 +58,47 @@ func ownedHarvesterCluster() *infrav1.HarvesterCluster {
 	}
 }
 
+var _ = Describe("HarvesterCluster initialization.provisioned (v1beta2 contract)", func() {
+	request := ctrl.Request{NamespacedName: types.NamespacedName{Name: "hv-cluster", Namespace: "default"}}
+
+	reconcileCluster := func(ctx SpecContext, status infrav1.HarvesterClusterStatus) *infrav1.HarvesterCluster {
+		hvCluster := ownedHarvesterCluster()
+		hvCluster.Status = status
+
+		scheme := pausedTestScheme()
+		cl := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(pausedTestCluster(false), hvCluster).
+			WithStatusSubresource(&infrav1.HarvesterCluster{}).
+			Build()
+		reconciler := &HarvesterClusterReconciler{Client: cl, Scheme: scheme}
+
+		// The reconcile fails further down (no identity Secret): the status is still
+		// patched by the deferred function.
+		_, _ = reconciler.Reconcile(ctx, request)
+
+		patched := &infrav1.HarvesterCluster{}
+		Expect(reconciler.Get(ctx, request.NamespacedName, patched)).To(Succeed())
+
+		return patched
+	}
+
+	It("reports provisioned once the cluster is ready", func(ctx SpecContext) {
+		hvCluster := reconcileCluster(ctx, infrav1.HarvesterClusterStatus{Ready: true})
+
+		Expect(hvCluster.Status.Initialization.Provisioned).To(BeTrue())
+	})
+
+	It("keeps provisioned once set, even when the cluster is no longer ready", func(ctx SpecContext) {
+		hvCluster := reconcileCluster(ctx, infrav1.HarvesterClusterStatus{
+			Ready:          false,
+			Initialization: infrav1.Initialization{Provisioned: true},
+		})
+
+		Expect(hvCluster.Status.Initialization.Provisioned).To(BeTrue())
+	})
+})
+
 var _ = Describe("Paused condition on HarvesterCluster (v1beta2 contract)", func() {
 	newReconciler := func(objs ...client.Object) *HarvesterClusterReconciler {
 		scheme := pausedTestScheme()

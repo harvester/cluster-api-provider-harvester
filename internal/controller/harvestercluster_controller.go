@@ -141,10 +141,7 @@ func (r *HarvesterClusterReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	defer func() {
-		// Mirror status.ready (v1beta1 contract) into status.initialization.provisioned
-		// (v1beta2 contract). CAPI reads whichever field matches the CRD's contract label;
-		// keeping both in sync lets a single v1alpha1 object satisfy both contracts.
-		cluster.Status.Initialization.Provisioned = cluster.Status.Ready
+		markProvisionedOnceReady(cluster.Status.Ready, &cluster.Status.Initialization)
 
 		patchErr := patchHelper.Patch(ctx, &cluster)
 		if patchErr != nil {
