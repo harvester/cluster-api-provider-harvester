@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Manager refused by Pod Security admission**: the manager container ran
+  with `privileged: true`, which it never needed (it only calls Kubernetes
+  APIs), so its pod was rejected in a namespace enforcing the `baseline` or
+  `restricted` Pod Security Standard, as on a hardened Rancher management
+  cluster. It now runs with the `restricted` settings: non-root, no privilege
+  escalation, all capabilities dropped and the `RuntimeDefault` seccomp
+  profile.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to
