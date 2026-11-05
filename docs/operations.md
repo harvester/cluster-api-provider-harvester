@@ -1101,6 +1101,16 @@ image size"). For a 10Gi image, request at least 11Gi.
 This is the building block for the BSI APP.4.4.A20 requirement (encrypted data
 storage); see `docs/compliance.md` for the full mapping.
 
+## Harvester node maintenance
+
+The VMs created by CAPHV set `evictionStrategy: LiveMigrateIfPossible`, as the
+Rancher node driver does: when a Harvester host is drained (maintenance mode,
+Harvester upgrade), KubeVirt live migrates them to another host and the guest
+nodes keep running. A VM that cannot be migrated (single host cluster, VM
+pinned to its host, see [Failure domains](#failure-domains)) is not moved:
+Harvester refuses the maintenance, or stops the VM when the maintenance is
+forced.
+
 ## Failure domains
 
 The provider discovers the failure domains of the target Harvester cluster and
