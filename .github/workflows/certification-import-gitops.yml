@@ -43,12 +43,13 @@ jobs:
           # The Rancher server-url must be reachable both from inside the kind
           # cluster and from the workload VMs: the runner VM's LAN IP is.
           RANCHER_HOSTNAME="$(hostname -I | awk '{print $1}').sslip.io"
-          sudo env "PATH=/root/.krew/bin:/usr/local/bin:$PATH" HOME=/root GOTOOLCHAIN=auto \
+          # The kubeconfig is passed through the environment, never on the
+          # command line: arguments are world-readable in ps on the runner.
+          sudo --preserve-env=HARVESTER_KUBECONFIG_B64 env "PATH=/root/.krew/bin:/usr/local/bin:$PATH" HOME=/root GOTOOLCHAIN=auto \
             E2E_CONFIG="$PWD/config/config.yaml" ARTIFACTS_FOLDER="$PWD/_artifacts" \
             HELM_BINARY_PATH=/usr/local/bin/helm HELM_EXTRA_VALUES_FOLDER="$PWD/_artifacts" \
             MANAGEMENT_CLUSTER_ENVIRONMENT=internal-kind \
             RANCHER_HOSTNAME="$RANCHER_HOSTNAME" \
-            HARVESTER_KUBECONFIG_B64="$HARVESTER_KUBECONFIG_B64" \
             REGISTRY_MIRROR_ENDPOINT="$REGISTRY_MIRROR_ENDPOINT" \
             ./bin/import-gitops.test -test.timeout 140m -test.v -ginkgo.v
 
