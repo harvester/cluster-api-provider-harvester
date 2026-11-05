@@ -628,6 +628,12 @@ func getIPFromIPPool(scope *ClusterScope, lbNamespacedName string) (string, erro
 		}
 	}
 
+	// A previous pass may have reserved the address and failed afterwards (Service not created,
+	// controller restarted): the allocator refuses a second address for the same owner.
+	if ips := locutil.NewStore(ipPool).GetByID(lbNamespacedName, ""); len(ips) > 0 {
+		return ips[0].String(), nil
+	}
+
 	if ipPool.Status.Available == 0 {
 		return "", errors.Errorf("IP Pool %s does not have available addresses", poolRef)
 	}
@@ -661,14 +667,18 @@ func allocateIPFromPool(refPool *lbv1beta1.IPPool, lbNamespacedName string, scop
 
 	var err error
 
-	// apply the IP allocated before in priority
+	// apply the IP allocated before in priority, unless a history entry left by a previous
+	// version points to an address given to another owner since
 	if refPool.Status.AllocatedHistory != nil {
 		for k, v := range refPool.Status.AllocatedHistory {
 			if lbNamespacedName == v {
 				ipObj, err = a.Get(lbNamespacedName, "", net.ParseIP(k))
 				if err != nil {
-					return "", err
+					scope.Logger.V(1).Info("Previous address no longer available, allocating another one",
+						"pool", refPool.Name, "address", k, "reason", err.Error())
 				}
+
+				break
 			}
 		}
 	}

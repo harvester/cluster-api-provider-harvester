@@ -6,6 +6,15 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **IP allocation failing forever after a transient error**: when a pass
+  reserved the control plane load balancer address and failed before creating
+  its Service, every later pass failed with "duplicate allocation is not
+  allowed". And the provider's IP store did not remove a reserved address from
+  the pool history, unlike the Harvester load balancer store, so the previous
+  owner of an address given to someone else kept asking for it and its
+  allocation failed. The address already held is now reused, a reserved address
+  leaves the history, and a free address is taken when a history entry left by
+  a previous version points to an address in use.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to

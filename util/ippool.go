@@ -75,6 +75,10 @@ func (s *Store) Reserve(id, _ string, ip net.IP, _ string) (bool, error) {
 		}
 	}
 
+	// The address leaves the history of its previous owner, as in the Harvester load
+	// balancer store (pkg/ipam/store), so that this owner no longer asks for it.
+	delete(s.Status.AllocatedHistory, ipStr)
+
 	// Add to Allocated map
 	if s.Status.Allocated == nil {
 		s.Status.Allocated = make(map[string]string)
@@ -364,14 +368,12 @@ func AllocateVMIPFromPool(pool *lbv1beta1.IPPool, machineID string) (string, err
 
 	var err error
 
-	// Try to reuse historical allocation first
+	// Try to reuse historical allocation first, unless a history entry left by a previous
+	// version points to an address given to another owner since
 	if pool.Status.AllocatedHistory != nil {
 		for k, v := range pool.Status.AllocatedHistory {
 			if machineID == v {
-				ipObj, err = a.Get(machineID, "", net.ParseIP(k))
-				if err != nil {
-					return "", errors.Wrapf(err, "failed to reuse historical IP %s", k)
-				}
+				ipObj, _ = a.Get(machineID, "", net.ParseIP(k))
 
 				break
 			}
