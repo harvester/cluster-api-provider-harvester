@@ -373,13 +373,16 @@ func ModifyYAMlString(yamlString string, secretName string, secretNamespace stri
 		return "", err
 	}
 
-	secrets, _, err := GetSecrets(objects)
+	secrets, indexes, err := GetSecrets(objects)
 	if err != nil {
 		return "", err
 	}
 
 	secret, index, err := FindSecretByName(secrets, secretName, secretNamespace)
-	if err != nil {
+	if err == nil {
+		// FindSecretByName returns the position among the Secrets of the manifest only.
+		index = indexes[index]
+	} else {
 		// If the secret is not found (only possible reason for an error), create a new one
 		secret = &corev1.Secret{
 			TypeMeta: metav1.TypeMeta{
