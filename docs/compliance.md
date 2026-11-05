@@ -43,7 +43,7 @@ when CAPHV is involved, the feature to use.
 | A16 | Use of operators | architecture | the whole platform is operator-driven (Cluster API) |
 | A17 | **Node attestation** | **CAPHV** | UEFI Secure Boot and vTPM per machine type (v0.8.0): `spec.firmware {efi, secureBoot}` and `spec.tpm {enabled, persistent}` |
 | A18 | Micro-segmentation | CNI / operations | NetworkPolicies, service mesh |
-| A19 | **High availability** | **CAPHV** + Harvester | failure domain discovery, publication and placement (v0.9.0): control plane machines spread across Harvester zones or hosts; host-level HA is Harvester's |
+| A19 | **High availability** | **CAPHV** + Harvester | failure domain discovery, publication and placement (v0.9.0): control plane machines spread across Harvester zones (required) or hosts (preferred, so that the VMs stay migratable); host-level HA is Harvester's |
 | A20 | **Encrypted data storage for pods** | Harvester + **CAPHV** | Longhorn-encrypted StorageClasses and encrypted VM images; CAPHV consumes them transparently (see "Encrypted storage" in `operations.md`) |
 | A21 | Regular pod restarts | operations | workload lifecycle policies |
 

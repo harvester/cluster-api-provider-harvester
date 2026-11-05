@@ -36,6 +36,10 @@ const (
 	// domain, the node label the machine controller must schedule on to land
 	// in that domain.
 	failureDomainTopologyKeyAttribute = "topologyKey"
+
+	// hostFailureDomainWeight is the weight of the preferred node affinity that
+	// places a VM on the host of its failure domain (the highest weight allowed).
+	hostFailureDomainWeight = 100
 )
 
 // failureDomainsFromNodes derives the failure domains of a Harvester cluster

@@ -133,16 +133,25 @@ var _ = Describe("buildAffinity with a failure domain", func() {
 		}))
 	})
 
-	It("should fall back to the hostname label when the domain is not published", func() {
-		affinity := buildAffinity(newScope("host-9", nil, nil))
+	It("should prefer, not require, the host of a per host domain so that the VM can be migrated", func() {
+		domains := []clusterv1.FailureDomain{
+			{Name: "host-1", Attributes: map[string]string{failureDomainTopologyKeyAttribute: hostnameTopologyLabel}},
+		}
 
-		terms := affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
-		Expect(terms).To(HaveLen(1))
-		Expect(terms[0].MatchExpressions).To(ContainElement(corev1.NodeSelectorRequirement{
-			Key:      hostnameTopologyLabel,
-			Operator: corev1.NodeSelectorOpIn,
-			Values:   []string{"host-9"},
-		}))
+		// A published per host domain, and a domain name that is not published (host name fallback).
+		for _, failureDomain := range []string{"host-1", "host-9"} {
+			affinity := buildAffinity(newScope(failureDomain, domains, nil))
+
+			Expect(affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution).To(BeNil(), failureDomain)
+			Expect(affinity.NodeAffinity.PreferredDuringSchedulingIgnoredDuringExecution).To(ConsistOf(corev1.PreferredSchedulingTerm{
+				Weight: 100,
+				Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{{
+					Key:      hostnameTopologyLabel,
+					Operator: corev1.NodeSelectorOpIn,
+					Values:   []string{failureDomain},
+				}}},
+			}), failureDomain)
+		}
 	})
 
 	It("should append the constraint to every user provided required term", func() {
@@ -166,6 +175,8 @@ var _ = Describe("buildAffinity with a failure domain", func() {
 		Expect(terms[0].MatchExpressions).To(HaveLen(2))
 		Expect(terms[0].MatchExpressions[0].Key).To(Equal("size"))
 		Expect(terms[0].MatchExpressions[1].Key).To(Equal(zoneTopologyLabel))
+		Expect(userAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(HaveLen(1),
+			"the HarvesterMachine spec is left untouched")
 	})
 
 	It("should leave the affinity unchanged when no failure domain is set", func() {
