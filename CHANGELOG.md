@@ -43,6 +43,22 @@ All notable changes to this project are documented in this file.
   matches NICs by that address, whatever name the image uses. The DHCP
   workaround finds the interface by MAC and is skipped when ISC `dhclient` is
   not installed.
+- **VM volumes could be left behind after machine deletion**: Harvester
+  creates the PVCs of a VM without owner reference and only deletes them with
+  the VM when they are listed in the
+  `harvesterhci.io/removedPersistentVolumeClaims` annotation, which CAPHV never
+  set: it relied on a cleanup by name prefix that ran once the VM was gone,
+  logged its errors and removed the machine finalizer anyway. CAPHV now sets
+  the annotation when it creates the VM, so that Harvester deletes the disks
+  with the VM whoever deletes it (the Harvester API replaces the list with the
+  choice of the user when the VM is deleted from its UI), sets it before
+  deleting a VM created by a previous version, as the Harvester API, the
+  Rancher node driver and the Terraform provider do, and deletes the VM with
+  foreground propagation, once. Hotplugged volumes are left alone. The cleanup by name prefix is
+  removed: in a Harvester namespace shared with other users, a PVC that only
+  shared the prefix could be deleted, and the volumes of a VM deleted outside
+  CAPHV are left as chosen when it was deleted. The Harvester identity of the
+  cluster now needs the `patch` verb on VirtualMachines.
 
 ## [v0.10.1] - 2026-07-28
 
