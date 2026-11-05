@@ -480,6 +480,24 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 		}
 	}
 
+	// The VM of a provisioned machine is gone (deleted outside Cluster API). A new VM would
+	// get another UID than the provider ID of the Machine and of its node: report the
+	// machine as failed and leave its replacement to Cluster API, as CAPV does.
+	if !vmExists && hvScope.HarvesterMachine.Spec.ProviderID != "" {
+		logger.Info("The VM of this provisioned machine no longer exists in Harvester, not recreating it",
+			"providerID", hvScope.HarvesterMachine.Spec.ProviderID)
+
+		hvScope.HarvesterMachine.Status.Ready = false
+		conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
+			Type:    infrav1.MachineCreatedCondition,
+			Status:  metav1.ConditionFalse,
+			Reason:  infrav1.MachineNotFoundReason,
+			Message: "VM not found in Harvester",
+		})
+
+		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+	}
+
 	if !conditions.IsTrue(hvScope.HarvesterMachine, infrav1.MachineCreatedCondition) {
 		logger.Info("No existing VM found in Harvester, creating a new one ...")
 

@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **VM recreated in silence after being deleted outside Cluster API**: when the
+  VM of a provisioned machine was deleted on Harvester, the next reconciles
+  created a new VM under the same HarvesterMachine and reported the machine
+  ready, while its provider ID still held the UID of the deleted VM. The VM is
+  no longer recreated once the provider ID is set: the machine reports
+  `MachineCreated=False` (`MachineNotFound`) and is replaced by Cluster API
+  (MachineHealthCheck, or by deleting the Machine).
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to
