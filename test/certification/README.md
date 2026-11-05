@@ -103,6 +103,9 @@ downstream agent cannot reach the server-url.
 In CI the suite runs on a **self-hosted runner** living inside the test environment
 (same pattern as the Turtles vSphere runner), on a schedule and manual dispatch only -
 never on pull requests. `HARVESTER_KUBECONFIG_B64` is provided as an Actions secret.
+The cluster dumps the suite collects hold credentials (the identity Secret, the cloud
+provider token written into the addon ConfigMap), so they are not uploaded as workflow
+artifacts: they stay on the runner in `/var/tmp/caphv-certification/<run id>` for 14 days.
 
 Run manually with `MANAGEMENT_CLUSTER_ENVIRONMENT=internal-kind`,
 `RANCHER_HOSTNAME=<host-ip>.sslip.io` and `HARVESTER_KUBECONFIG_B64=$(base64 -w0 <
