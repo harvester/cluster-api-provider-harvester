@@ -44,6 +44,13 @@ All notable changes to this project are documented in this file.
   workaround finds the interface by MAC and is skipped when ISC `dhclient` is
   not installed.
 
+### Changed
+
+- **Quieter controller logs**: the start of each HarvesterMachine and
+  HarvesterCluster reconcile is logged at debug level (verbosity 1) once the
+  object is read, instead of at info level before reading it. Errors keep
+  their own log lines.
+
 ## [v0.10.1] - 2026-07-28
 
 ### Fixed
