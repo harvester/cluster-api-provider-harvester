@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **Talos machine configs are no longer merged with cloud-init**: the
+  bootstrap data was always merged with CAPHV's cloud-init sections and
+  stamped with `#cloud-config`. Talos ignores such user-data, so nodes built
+  from the Talos bootstrap provider found no machine config and stayed in
+  maintenance mode. Bootstrap data with top-level `version` and `machine`
+  keys is now passed through unchanged; all other bootstrap data is merged
+  as before.
 - **Harvester v1.9 endpoint lookup**: the cloud provider kubeconfig was built
   from the VIP published on the `kube-system/ingress-expose` Service, which
   Harvester v1.9 no longer ships, so every cluster failed with "unable to

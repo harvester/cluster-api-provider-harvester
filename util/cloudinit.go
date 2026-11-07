@@ -83,3 +83,21 @@ func MergeCloudInitData(cloudInits ...string) ([]byte, error) {
 
 	return resultCloudInit, nil
 }
+
+// IsTalosMachineConfig reports whether bootstrap data is a Talos machine config rather than
+// cloud-init data. Talos ignores user-data that starts with #cloud-config, which merging adds,
+// so such data has to reach the VM unchanged. A Talos config is a YAML document with top-level
+// "version" and "machine" keys, neither of which is a cloud-init key.
+func IsTalosMachineConfig(data string) bool {
+	doc := make(map[string]any)
+
+	err := yaml.Unmarshal([]byte(data), &doc)
+	if err != nil {
+		return false
+	}
+
+	_, hasVersion := doc["version"]
+	_, hasMachine := doc["machine"]
+
+	return hasVersion && hasMachine
+}

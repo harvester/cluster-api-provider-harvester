@@ -169,3 +169,33 @@ runcmd:
 		Expect(err.Error()).To(ContainSubstring("unable to cast"))
 	})
 })
+
+var _ = Describe("IsTalosMachineConfig", func() {
+	It("detects a Talos machine config", func() {
+		data := "version: v1alpha1\nmachine:\n  type: controlplane\ncluster:\n  clusterName: test\n"
+		Expect(IsTalosMachineConfig(data)).To(BeTrue())
+	})
+
+	It("detects a multi-document Talos config", func() {
+		data := "version: v1alpha1\nmachine:\n  type: worker\n---\napiVersion: v1alpha1\nkind: HostnameConfig\n"
+		Expect(IsTalosMachineConfig(data)).To(BeTrue())
+	})
+
+	It("does not match cloud-config", func() {
+		Expect(IsTalosMachineConfig("#cloud-config\nruncmd:\n  - echo hi\n")).To(BeFalse())
+	})
+
+	It("does not match cloud-config without a header", func() {
+		Expect(IsTalosMachineConfig("runcmd:\n  - echo hello\n")).To(BeFalse())
+	})
+
+	It("does not match kubeadm jinja cloud-config", func() {
+		data := "## template: jinja\n#cloud-config\nruncmd:\n  - kubeadm init\n"
+		Expect(IsTalosMachineConfig(data)).To(BeFalse())
+	})
+
+	It("does not match empty data or a shell script", func() {
+		Expect(IsTalosMachineConfig("")).To(BeFalse())
+		Expect(IsTalosMachineConfig("#!/bin/bash\necho hi\n")).To(BeFalse())
+	})
+})
