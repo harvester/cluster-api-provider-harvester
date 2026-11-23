@@ -123,6 +123,16 @@ type HarvesterMachineSpec struct {
 	// +optional
 	VMNetworkConfig *VMNetworkConfig `json:"vmNetworkConfig,omitempty"`
 
+	// NetworkConfigs is a list of per-NIC network configurations, parallel to Networks:
+	// NetworkConfigs[i] configures the NIC attached to Networks[i] (nic-i+1), so each NIC
+	// of the VM can allocate its IP from a different IPPool with its own gateway and
+	// subnet mask. It takes precedence over the cluster-level
+	// vmNetworkConfig.interfaces entry of the same index, and over the effective
+	// vmNetworkConfig (which only ever applies to the first NIC). NICs without an
+	// entry use DHCP. Mutually exclusive with networkConfig.
+	// +optional
+	NetworkConfigs []NetworkInterfaceConfig `json:"networkConfigs,omitempty"`
+
 	// Firmware selects the firmware used to boot the VM. When unset, the VM
 	// keeps booting with the current default (BIOS).
 	// +optional
@@ -155,6 +165,18 @@ type TPM struct {
 	// Persistent keeps the TPM state across reboots.
 	// +optional
 	Persistent bool `json:"persistent,omitempty"`
+}
+
+// NICIPAllocation records an IP allocated from an IPPool for one NIC of the VM.
+type NICIPAllocation struct {
+	// Network is the spec.networks entry the NIC is attached to.
+	Network string `json:"network"`
+
+	// IPAddress is the allocated IP address.
+	IPAddress string `json:"ipAddress"`
+
+	// PoolRef is the name of the IPPool the IP was allocated from.
+	PoolRef string `json:"poolRef"`
 }
 
 // NetworkConfig defines static network configuration for a VM.
@@ -232,6 +254,13 @@ type HarvesterMachineStatus struct {
 	// Used for accurate release when multiple pools are configured.
 	// +optional
 	AllocatedPoolRef string `json:"allocatedPoolRef,omitempty"`
+
+	// AllocatedIPAddresses lists the IPs allocated from IPPools, one entry per NIC,
+	// in the order of spec.networks. It is kept in addition to
+	// AllocatedIPAddress/AllocatedPoolRef (which mirror the first NIC) for backward
+	// compatibility and accurate release of every NIC's IP.
+	// +optional
+	AllocatedIPAddresses []NICIPAllocation `json:"allocatedIPAddresses,omitempty"`
 
 	// FailureDomain reports the failure domain the machine was placed in
 	// (CAPI contract field, mirrored to Machine.status.failureDomain).

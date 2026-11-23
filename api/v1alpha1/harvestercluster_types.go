@@ -183,6 +183,57 @@ type VMNetworkConfig struct {
 	// DNSSearch is a list of DNS search domains.
 	// +optional
 	DNSSearch []string `json:"dnsSearch,omitempty"`
+
+	// Interfaces is a list of per-NIC network configurations, parallel to the
+	// machine's spec.networks list: Interfaces[i] configures the NIC attached to
+	// the machine's networks[i], so each NIC of a VM can use a different IPPool
+	// with its own gateway and subnet mask. A machine-level
+	// spec.networkConfigs entry for the same index takes precedence over this
+	// one. NICs without an entry fall back to the top-level ipPoolRef/ipPoolRefs/
+	// ipPool, gateway and subnetMask for the first NIC only, and use DHCP
+	// otherwise. The inline ipPool variant is not supported at the interface
+	// level; use ipPoolRef or ipPoolRefs.
+	// +optional
+	Interfaces []NetworkInterfaceConfig `json:"interfaces,omitempty"`
+}
+
+// NetworkInterfaceConfig describes the pool-based network configuration of a
+// single VM NIC. Entry i of the list configures the NIC attached to the i-th
+// entry of the machine's spec.networks.
+type NetworkInterfaceConfig struct {
+	// IPPoolRef is a reference to an existing IPPool in Harvester for this NIC's IP allocation.
+	// When multiple pools are needed, use IPPoolRefs instead.
+	// Mutually exclusive with IPPoolRefs.
+	// +optional
+	IPPoolRef string `json:"ipPoolRef,omitempty"`
+
+	// IPPoolRefs is a list of references to existing IPPools in Harvester for this NIC.
+	// Pools are tried in order: if a pool is exhausted, allocation falls back
+	// to the next one. A pool whose selector designates a network is only used
+	// for NICs attached to that network.
+	// +optional
+	IPPoolRefs []string `json:"ipPoolRefs,omitempty"`
+
+	// Gateway is the gateway IP address for this NIC's network.
+	Gateway string `json:"gateway"`
+
+	// SubnetMask is the subnet mask for this NIC's network (e.g. "255.255.255.0").
+	SubnetMask string `json:"subnetMask"`
+}
+
+// GetIPPoolRefs returns all configured IPPool references for this NIC in
+// priority order. It merges IPPoolRefs and IPPoolRef for backward
+// compatibility.
+func (n *NetworkInterfaceConfig) GetIPPoolRefs() []string {
+	if len(n.IPPoolRefs) > 0 {
+		return n.IPPoolRefs
+	}
+
+	if n.IPPoolRef != "" {
+		return []string{n.IPPoolRef}
+	}
+
+	return nil
 }
 
 // GetIPPoolRefs returns all configured IPPool references in priority order.

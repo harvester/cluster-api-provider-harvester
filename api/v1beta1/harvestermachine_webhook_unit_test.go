@@ -126,3 +126,98 @@ func TestValidateMachineVMNetworkConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateMachineNetworkConfigs(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(m *HarvesterMachine)
+		wantErr string
+	}{
+		{
+			"valid per-NIC configs parallel to networks",
+			func(m *HarvesterMachine) {
+				m.Spec.Networks = []string{"default/net-a", "default/net-b"}
+				m.Spec.NetworkConfigs = []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "172.16.0.1", SubnetMask: "255.255.255.0"},
+					{IPPoolRefs: []string{"pool-b"}, Gateway: "172.17.0.1", SubnetMask: "255.255.0.0"},
+				}
+			},
+			"",
+		},
+		{
+			"fewer entries than networks is allowed (rest stays on DHCP)",
+			func(m *HarvesterMachine) {
+				m.Spec.Networks = []string{"default/net-a", "default/net-b"}
+				m.Spec.NetworkConfigs = []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "172.16.0.1", SubnetMask: "255.255.255.0"},
+				}
+			},
+			"",
+		},
+		{
+			"more entries than networks is rejected",
+			func(m *HarvesterMachine) {
+				m.Spec.NetworkConfigs = []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "172.16.0.1", SubnetMask: "255.255.255.0"},
+					{IPPoolRef: "pool-b", Gateway: "172.17.0.1", SubnetMask: "255.255.255.0"},
+				}
+			},
+			"only 1 networks",
+		},
+		{
+			"entry without pool is rejected",
+			func(m *HarvesterMachine) {
+				m.Spec.NetworkConfigs = []NetworkInterfaceConfig{
+					{Gateway: "172.16.0.1", SubnetMask: "255.255.255.0"},
+				}
+			},
+			"requires one of ipPoolRef or ipPoolRefs",
+		},
+		{
+			"invalid gateway",
+			func(m *HarvesterMachine) {
+				m.Spec.NetworkConfigs = []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "nope", SubnetMask: "255.255.255.0"},
+				}
+			},
+			"gateway",
+		},
+		{
+			"invalid subnet mask",
+			func(m *HarvesterMachine) {
+				m.Spec.NetworkConfigs = []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "172.16.0.1", SubnetMask: "nope"},
+				}
+			},
+			"subnetMask",
+		},
+		{
+			"mutually exclusive with static networkConfig",
+			func(m *HarvesterMachine) {
+				m.Spec.NetworkConfig = &NetworkConfig{Address: "10.20.0.10", Gateway: "10.20.0.1"}
+				m.Spec.NetworkConfigs = []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "172.16.0.1", SubnetMask: "255.255.255.0"},
+				}
+			},
+			"mutually exclusive",
+		},
+	}
+	for _, tc := range cases {
+		m := validMachine()
+		tc.mutate(m)
+
+		_, err := validateHarvesterMachine(m)
+
+		if tc.wantErr == "" && err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+		}
+
+		if tc.wantErr != "" && err == nil {
+			t.Errorf("%s: expected an error", tc.name)
+		}
+
+		if tc.wantErr != "" && err != nil && !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: error should mention %q: %v", tc.name, tc.wantErr, err)
+		}
+	}
+}

@@ -110,6 +110,7 @@ var _ = Describe("allocateVMIP with machine-level VMNetworkConfig", func() {
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-worker-0", Namespace: "test-ns"},
 				Spec: infrav1.HarvesterMachineSpec{
+					Networks: []string{"default/workers"},
 					VMNetworkConfig: &infrav1.VMNetworkConfig{
 						IPPoolRefs: []string{"pool-workers"},
 						Gateway:    "10.20.0.1",
@@ -143,6 +144,7 @@ var _ = Describe("allocateVMIP with machine-level VMNetworkConfig", func() {
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-worker-1", Namespace: "test-ns"},
 				Spec: infrav1.HarvesterMachineSpec{
+					Networks: []string{"default/workers"},
 					VMNetworkConfig: &infrav1.VMNetworkConfig{
 						IPPoolRef:  "pool-workers",
 						Gateway:    "10.20.0.1",

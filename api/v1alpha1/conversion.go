@@ -32,6 +32,13 @@ func convertVMNetworkConfigTo(src *VMNetworkConfig) *infrav1.VMNetworkConfig {
 		dst.IPPool = &pool
 	}
 
+	if src.Interfaces != nil {
+		dst.Interfaces = make([]infrav1.NetworkInterfaceConfig, len(src.Interfaces))
+		for i, iface := range src.Interfaces {
+			dst.Interfaces[i] = infrav1.NetworkInterfaceConfig(iface)
+		}
+	}
+
 	return &dst
 }
 
@@ -52,6 +59,13 @@ func convertVMNetworkConfigFrom(src *infrav1.VMNetworkConfig) *VMNetworkConfig {
 	if src.IPPool != nil {
 		pool := IpPool(*src.IPPool)
 		dst.IPPool = &pool
+	}
+
+	if src.Interfaces != nil {
+		dst.Interfaces = make([]NetworkInterfaceConfig, len(src.Interfaces))
+		for i, iface := range src.Interfaces {
+			dst.Interfaces[i] = NetworkInterfaceConfig(iface)
+		}
 	}
 
 	return &dst
@@ -146,6 +160,13 @@ func convertMachineSpecTo(src *HarvesterMachineSpec) infrav1.HarvesterMachineSpe
 
 	dst.VMNetworkConfig = convertVMNetworkConfigTo(src.VMNetworkConfig)
 
+	if src.NetworkConfigs != nil {
+		dst.NetworkConfigs = make([]infrav1.NetworkInterfaceConfig, len(src.NetworkConfigs))
+		for i, nic := range src.NetworkConfigs {
+			dst.NetworkConfigs[i] = infrav1.NetworkInterfaceConfig(nic)
+		}
+	}
+
 	if src.Firmware != nil {
 		firmware := infrav1.Firmware(*src.Firmware)
 		dst.Firmware = &firmware
@@ -192,6 +213,13 @@ func convertMachineSpecFrom(src *infrav1.HarvesterMachineSpec) HarvesterMachineS
 	}
 
 	dst.VMNetworkConfig = convertVMNetworkConfigFrom(src.VMNetworkConfig)
+
+	if src.NetworkConfigs != nil {
+		dst.NetworkConfigs = make([]NetworkInterfaceConfig, len(src.NetworkConfigs))
+		for i, nic := range src.NetworkConfigs {
+			dst.NetworkConfigs[i] = NetworkInterfaceConfig(nic)
+		}
+	}
 
 	if src.Firmware != nil {
 		firmware := Firmware(*src.Firmware)
@@ -265,6 +293,13 @@ func (src *HarvesterMachine) ConvertTo(dstRaw conversion.Hub) error {
 		FailureDomain:      src.Status.FailureDomain,
 	}
 
+	if src.Status.AllocatedIPAddresses != nil {
+		dst.Status.AllocatedIPAddresses = make([]infrav1.NICIPAllocation, len(src.Status.AllocatedIPAddresses))
+		for i, alloc := range src.Status.AllocatedIPAddresses {
+			dst.Status.AllocatedIPAddresses[i] = infrav1.NICIPAllocation(alloc)
+		}
+	}
+
 	return nil
 }
 
@@ -287,6 +322,13 @@ func (dst *HarvesterMachine) ConvertFrom(srcRaw conversion.Hub) error {
 		AllocatedIPAddress: src.Status.AllocatedIPAddress,
 		AllocatedPoolRef:   src.Status.AllocatedPoolRef,
 		FailureDomain:      src.Status.FailureDomain,
+	}
+
+	if src.Status.AllocatedIPAddresses != nil {
+		dst.Status.AllocatedIPAddresses = make([]NICIPAllocation, len(src.Status.AllocatedIPAddresses))
+		for i, alloc := range src.Status.AllocatedIPAddresses {
+			dst.Status.AllocatedIPAddresses[i] = NICIPAllocation(alloc)
+		}
 	}
 
 	return nil

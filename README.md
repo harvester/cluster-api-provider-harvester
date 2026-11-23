@@ -345,6 +345,26 @@ spec:
         - default/production
 ```
 
+Multi-NIC VMs with one IPPool per NIC (entry `i` of `networkConfigs` configures the NIC on
+`networks[i]`; each NIC gets its own gateway and subnet mask, NICs without an entry stay on
+DHCP):
+
+```yaml
+      networks:
+        - default/production
+        - default/storage
+      networkConfigs:
+        - ipPoolRef: default/pool-production
+          gateway: "172.16.0.1"
+          subnetMask: "255.255.0.0"
+        - ipPoolRef: default/pool-storage
+          gateway: "172.17.0.1"
+          subnetMask: "255.255.255.0"
+```
+
+The same per-NIC default can be set cluster-wide under `spec.vmNetworkConfig.interfaces` on
+the HarvesterCluster; a machine-level `networkConfigs[i]` overrides it for that NIC.
+
 ### 4. Create Control Plane + Workers
 
 See [templates/](templates/) for complete RKE2 cluster template examples.
@@ -389,8 +409,9 @@ Harvester HCI (target)
 | `spec.vmNetworkConfig.ipPoolRef` | string | No | Reference to a Harvester IPPool |
 | `spec.vmNetworkConfig.ipPoolRefs` | []string | No | Multiple pools, ordered fallback + network-aware selection (a pool whose `selector.network` matches one of the machine's networks) |
 | `spec.vmNetworkConfig.ipPool` | object | No | Inline IPPool to create in Harvester (cluster level only) |
+| `spec.vmNetworkConfig.interfaces` | []object | No | Per-NIC pool configs, parallel to each machine's `spec.networks` (entry i -> NIC i): `ipPoolRef`/`ipPoolRefs`, `gateway`, `subnetMask`. Lets every NIC of a multi-NIC VM use a different IPPool with its own gateway/mask |
 
-> **DHCP mode**: If `vmNetworkConfig` is omitted and no machine-level `networkConfig` is set, all VM NICs will use DHCP automatically. No IPPool or static IP configuration is needed.
+> **DHCP mode**: If `vmNetworkConfig` is omitted and no machine-level `networkConfig` is set, all VM NICs will use DHCP automatically. No IPPool or static IP configuration is needed. With pool-based config, the first NIC gets a static IP from the pool and the other NICs use DHCP, unless per-NIC entries are set (see below).
 
 ### HarvesterMachine
 
@@ -409,6 +430,7 @@ Harvester HCI (target)
 | `spec.volumes[].bootOrder` | int | No | Boot priority (1 = first) |
 | `spec.networkConfig` | object | No | Static IP configuration for this machine (address, gateway, DNS) |
 | `spec.vmNetworkConfig` | object | No | Machine-level pool-based network config overriding the cluster-level one (pools, gateway, subnet mask, DNS); mutually exclusive with `networkConfig` |
+| `spec.networkConfigs` | []object | No | Per-NIC pool configs, parallel to `spec.networks` (entry i configures the NIC on `networks[i]`, at most one entry per network): each entry takes `ipPoolRef`/`ipPoolRefs`, `gateway` and `subnetMask`, so every NIC can use a different IPPool with its own gateway and mask; NICs without an entry stay on DHCP; mutually exclusive with `networkConfig` |
 | `spec.firmware` | object | No | `efi` and `secureBoot` (Secure Boot requires EFI) |
 | `spec.tpm` | object | No | `enabled` and `persistent` emulated TPM device |
 | `spec.nodeAffinity` / `spec.workloadAffinity` | object | No | VM scheduling constraints on Harvester hosts / other workloads |

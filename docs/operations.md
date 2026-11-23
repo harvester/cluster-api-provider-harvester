@@ -857,6 +857,7 @@ Requirements:
 | `spec.vmNetworkConfig.gateway` | Required, must be a valid IP address |
 | `spec.vmNetworkConfig.subnetMask` | Required, must be a valid IP address format |
 | `spec.vmNetworkConfig.ipPoolRef` or `ipPoolRefs` or `ipPool` | At least one must be set when vmNetworkConfig is specified |
+| `spec.vmNetworkConfig.interfaces[]` | Per-NIC pool configs (parallel to the machine's `spec.networks`); each entry requires `ipPoolRef`/`ipPoolRefs` and valid-IP `gateway`/`subnetMask` |
 
 **HarvesterMachine**:
 
@@ -874,6 +875,7 @@ Requirements:
 | `spec.networkConfig.address` | Required when networkConfig is set |
 | `spec.networkConfig.gateway` | Required and must be a valid IP when networkConfig is set |
 | `spec.vmNetworkConfig` | Mutually exclusive with `networkConfig`; requires `ipPoolRef` or `ipPoolRefs` (inline `ipPool` is rejected at the machine level); `gateway` and `subnetMask` required and must be valid IPs |
+| `spec.networkConfigs[]` | Per-NIC pool configs, parallel to `spec.networks` (at most one entry per network); each entry requires `ipPoolRef`/`ipPoolRefs` and valid-IP `gateway`/`subnetMask`; mutually exclusive with `networkConfig` |
 | `spec.firmware.secureBoot` | Requires `spec.firmware.efi` to be true |
 
 ### Troubleshooting webhook issues
@@ -1059,6 +1061,73 @@ override is fully backward compatible. Notes:
 - `vmNetworkConfig` and the static per-machine `networkConfig` are mutually exclusive on
   the same machine.
 - Network-aware selection applies to the machine-level pool list as well.
+
+### Per-NIC network configuration (multi-NIC VMs)
+
+By default, pool-based static IPs apply to the **first NIC only**; additional NICs of a
+multi-network VM stay on DHCP. To give every NIC of a VM its own IPPool, gateway and subnet
+mask, use the per-NIC lists, which are parallel to `spec.networks`: entry `i` configures the
+NIC attached to `networks[i]`.
+
+Machine level (`HarvesterMachine` / `HarvesterMachineTemplate`):
+
+```yaml
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterMachineTemplate
+metadata:
+  name: workers
+spec:
+  template:
+    spec:
+      networks:
+        - "default/net-a"
+        - "default/net-b"
+      networkConfigs:           # networkConfigs[i] -> NIC on networks[i]
+        - ipPoolRef: "pool-a"   # first NIC: pool-a, gateway/mask of net-a
+          gateway: "172.16.0.1"
+          subnetMask: "255.255.255.0"
+        - ipPoolRefs:           # second NIC: pool-b (fallback pool-b-2)
+            - "pool-b"
+            - "pool-b-2"
+          gateway: "172.17.0.1"
+          subnetMask: "255.255.0.0"
+      # a third network without an entry stays on DHCP
+```
+
+Cluster level (`HarvesterCluster`), as the default for all machines of the cluster:
+
+```yaml
+spec:
+  vmNetworkConfig:
+    ipPoolRef: "pool-a"          # still applies to the first NIC
+    gateway: "172.16.0.1"
+    subnetMask: "255.255.0.0"
+    interfaces:                  # interfaces[i] -> NIC on the machine's networks[i]
+      - ipPoolRef: "pool-a"
+        gateway: "172.16.0.1"
+        subnetMask: "255.255.255.0"
+      - ipPoolRef: "pool-b"
+        gateway: "172.17.0.1"
+        subnetMask: "255.255.0.0"
+```
+
+Precedence for NIC `i`: machine `spec.networkConfigs[i]` > cluster
+`vmNetworkConfig.interfaces[i]` > (first NIC only) the top-level `vmNetworkConfig`. A NIC
+without any entry uses DHCP. A pool whose Harvester `spec.selector.network` designates a
+network is only used for NICs attached to that network, so each NIC draws from the pool of
+its own network.
+
+Each allocation is recorded in `status.allocatedIPAddresses` (one entry per NIC, with the
+network, IP and pool) and released on machine deletion; `status.allocatedIPAddress` /
+`status.allocatedPoolRef` keep mirroring the first NIC for backward compatibility. In the
+generated cloud-init network config, every NIC with an allocation gets a `static` subnet
+with its own gateway and netmask (matched by MAC address); the others get `dhcp`.
+
+Validation (webhook): `spec.networkConfigs` cannot have more entries than `spec.networks`,
+each entry requires `ipPoolRef` or `ipPoolRefs` plus a valid-IP `gateway` and `subnetMask`,
+and `spec.networkConfigs` is mutually exclusive with the static `spec.networkConfig`. The
+same per-entry rules apply to `vmNetworkConfig.interfaces` at the cluster level. The inline
+`ipPool` definition is not supported per NIC; reference existing pools instead.
 
 ## Encrypted storage
 

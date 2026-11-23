@@ -92,6 +92,10 @@ func validateHarvesterCluster(r *HarvesterCluster) (admission.Warnings, error) {
 		} else if net.ParseIP(vmCfg.SubnetMask) == nil {
 			errs = append(errs, fmt.Sprintf("spec.vmNetworkConfig.subnetMask %q is not a valid IP address", vmCfg.SubnetMask))
 		}
+
+		// The number of machine networks is unknown at the cluster level, so
+		// only the per-entry checks apply (maxNICs = -1).
+		errs = append(errs, validateNetworkConfigs("spec.vmNetworkConfig.interfaces", vmCfg.Interfaces, -1, false)...)
 	}
 
 	if len(errs) > 0 {

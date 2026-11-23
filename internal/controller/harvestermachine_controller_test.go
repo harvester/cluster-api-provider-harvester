@@ -2894,6 +2894,7 @@ var _ = Describe("ReconcileNormal", func() {
 					Finalizers: []string{infrav1.MachineFinalizer},
 				},
 				Spec: infrav1.HarvesterMachineSpec{
+					Networks:      []string{"default/production"},
 					NetworkConfig: nil, // no machine-level config
 				},
 			},
@@ -3174,6 +3175,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3199,6 +3201,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 				Status: infrav1.HarvesterMachineStatus{
 					AllocatedIPAddress: "172.16.3.40",
 				},
@@ -3221,6 +3224,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{},
 			HarvesterClient:  hvClient,
@@ -3240,6 +3244,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3276,6 +3281,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3324,6 +3330,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-1", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3376,6 +3383,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-new", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3410,6 +3418,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{

@@ -118,6 +118,8 @@ func validateHarvesterMachine(r *HarvesterMachine) (admission.Warnings, error) {
 
 	errs = append(errs, validateMachineVMNetworkConfig(r)...)
 
+	errs = append(errs, validateNetworkConfigs("spec.networkConfigs", r.Spec.NetworkConfigs, len(r.Spec.Networks), r.Spec.NetworkConfig != nil)...)
+
 	if fw := r.Spec.Firmware; fw != nil && fw.SecureBoot && !fw.EFI {
 		errs = append(errs, "spec.firmware.secureBoot requires spec.firmware.efi to be true")
 	}
@@ -162,6 +164,47 @@ func validateMachineVMNetworkConfig(r *HarvesterMachine) []string {
 		errs = append(errs, "spec.vmNetworkConfig.subnetMask is required")
 	} else if net.ParseIP(vmCfg.SubnetMask) == nil {
 		errs = append(errs, fmt.Sprintf("spec.vmNetworkConfig.subnetMask %q is not a valid IP address", vmCfg.SubnetMask))
+	}
+
+	return errs
+}
+
+// validateNetworkConfigs checks a list of per-NIC network configurations
+// (spec.networkConfigs on a HarvesterMachine, or vmNetworkConfig.interfaces on a
+// HarvesterCluster). maxNICs is the number of networks of the machine when known
+// (-1 when unknown, e.g. at the cluster level). networkConfigSet reports whether
+// the machine-level static networkConfig is set, which is mutually exclusive with
+// per-NIC pool-based configs.
+func validateNetworkConfigs(field string, ifaces []NetworkInterfaceConfig, maxNICs int, networkConfigSet bool) []string {
+	var errs []string
+
+	if networkConfigSet && len(ifaces) > 0 {
+		errs = append(errs, field+" and spec.networkConfig are mutually exclusive")
+	}
+
+	if maxNICs >= 0 && len(ifaces) > maxNICs {
+		errs = append(errs, fmt.Sprintf("%s has %d entries but the machine has only %d networks; "+
+			"each entry configures the NIC of the network at the same index", field, len(ifaces), maxNICs))
+	}
+
+	for i, iface := range ifaces {
+		prefix := fmt.Sprintf("%s[%d]", field, i)
+
+		if len(iface.GetIPPoolRefs()) == 0 {
+			errs = append(errs, prefix+" requires one of ipPoolRef or ipPoolRefs")
+		}
+
+		if iface.Gateway == "" {
+			errs = append(errs, prefix+".gateway is required")
+		} else if net.ParseIP(iface.Gateway) == nil {
+			errs = append(errs, fmt.Sprintf("%s.gateway %q is not a valid IP address", prefix, iface.Gateway))
+		}
+
+		if iface.SubnetMask == "" {
+			errs = append(errs, prefix+".subnetMask is required")
+		} else if net.ParseIP(iface.SubnetMask) == nil {
+			errs = append(errs, fmt.Sprintf("%s.subnetMask %q is not a valid IP address", prefix, iface.SubnetMask))
+		}
 	}
 
 	return errs
