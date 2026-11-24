@@ -1794,8 +1794,15 @@ func (r *HarvesterMachineReconciler) releaseVMIP(hvScope *Scope) {
 	if len(allocs) == 0 && machine.Status.AllocatedIPAddress != "" {
 		poolRef := machine.Status.AllocatedPoolRef
 		if poolRef == "" {
-			if vmNetCfg := effectiveVMNetworkConfig(hvScope); vmNetCfg != nil && len(vmNetCfg.GetIPPoolRefs()) > 0 {
-				poolRef = vmNetCfg.GetIPPoolRefs()[0]
+			// Fall back to the first pool configured on any NIC: the top-level
+			// vmNetworkConfig (first NIC) or a per-NIC interfaces/networkConfigs
+			// entry.
+			for _, cfg := range effectiveNICConfigs(hvScope) {
+				if len(cfg.PoolRefs) > 0 {
+					poolRef = cfg.PoolRefs[0]
+
+					break
+				}
 			}
 		}
 
