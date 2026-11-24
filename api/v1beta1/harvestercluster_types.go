@@ -171,10 +171,18 @@ type VMNetworkConfig struct {
 	IPPool *IpPool `json:"ipPool,omitempty"`
 
 	// Gateway is the gateway IP address for the VM network.
-	Gateway string `json:"gateway"`
+	// Required when Interfaces is not set (single-NIC configuration, applied to
+	// the first NIC only); when Interfaces is set, each entry carries its own
+	// gateway and this field is unused.
+	// +optional
+	Gateway string `json:"gateway,omitempty"`
 
 	// SubnetMask is the subnet mask for the VM network (e.g. "255.255.0.0").
-	SubnetMask string `json:"subnetMask"`
+	// Required when Interfaces is not set (single-NIC configuration, applied to
+	// the first NIC only); when Interfaces is set, each entry carries its own
+	// subnet mask and this field is unused.
+	// +optional
+	SubnetMask string `json:"subnetMask,omitempty"`
 
 	// DNSServers is a list of DNS server IP addresses.
 	// +optional

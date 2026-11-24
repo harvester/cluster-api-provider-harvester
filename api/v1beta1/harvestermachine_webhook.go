@@ -150,21 +150,33 @@ func validateMachineVMNetworkConfig(r *HarvesterMachine) []string {
 		errs = append(errs, "spec.vmNetworkConfig.ipPool is not supported at the machine level; use ipPoolRef or ipPoolRefs")
 	}
 
-	if len(vmCfg.GetIPPoolRefs()) == 0 {
-		errs = append(errs, "spec.vmNetworkConfig requires one of ipPoolRef or ipPoolRefs")
+	// The top-level ipPoolRef(s), gateway and subnetMask configure the first NIC
+	// only, so they are required in single-NIC mode (no per-NIC interfaces). When
+	// interfaces are set, each entry carries its own pool, gateway and subnet
+	// mask and the top-level fields are unused.
+	if len(vmCfg.Interfaces) == 0 {
+		if len(vmCfg.GetIPPoolRefs()) == 0 {
+			errs = append(errs, "spec.vmNetworkConfig requires one of ipPoolRef or ipPoolRefs")
+		}
+
+		if vmCfg.Gateway == "" {
+			errs = append(errs, "spec.vmNetworkConfig.gateway is required when vmNetworkConfig.interfaces is not set")
+		}
+
+		if vmCfg.SubnetMask == "" {
+			errs = append(errs, "spec.vmNetworkConfig.subnetMask is required when vmNetworkConfig.interfaces is not set")
+		}
 	}
 
-	if vmCfg.Gateway == "" {
-		errs = append(errs, "spec.vmNetworkConfig.gateway is required")
-	} else if net.ParseIP(vmCfg.Gateway) == nil {
+	if vmCfg.Gateway != "" && net.ParseIP(vmCfg.Gateway) == nil {
 		errs = append(errs, fmt.Sprintf("spec.vmNetworkConfig.gateway %q is not a valid IP address", vmCfg.Gateway))
 	}
 
-	if vmCfg.SubnetMask == "" {
-		errs = append(errs, "spec.vmNetworkConfig.subnetMask is required")
-	} else if net.ParseIP(vmCfg.SubnetMask) == nil {
+	if vmCfg.SubnetMask != "" && net.ParseIP(vmCfg.SubnetMask) == nil {
 		errs = append(errs, fmt.Sprintf("spec.vmNetworkConfig.subnetMask %q is not a valid IP address", vmCfg.SubnetMask))
 	}
+
+	errs = append(errs, validateNetworkConfigs("spec.vmNetworkConfig.interfaces", vmCfg.Interfaces, len(r.Spec.Networks), false)...)
 
 	return errs
 }

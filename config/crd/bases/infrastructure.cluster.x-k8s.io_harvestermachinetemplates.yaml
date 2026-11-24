@@ -429,8 +429,11 @@ spec:
                               type: string
                             type: array
                           gateway:
-                            description: Gateway is the gateway IP address for the
-                              VM network.
+                            description: |-
+                              Gateway is the gateway IP address for the VM network.
+                              Required when Interfaces is not set (single-NIC configuration, applied to
+                              the first NIC only); when Interfaces is set, each entry carries its own
+                              gateway and this field is unused.
                             type: string
                           interfaces:
                             description: |-
@@ -529,12 +532,12 @@ spec:
                               type: string
                             type: array
                           subnetMask:
-                            description: SubnetMask is the subnet mask for the VM
-                              network (e.g. "255.255.0.0").
+                            description: |-
+                              SubnetMask is the subnet mask for the VM network (e.g. "255.255.0.0").
+                              Required when Interfaces is not set (single-NIC configuration, applied to
+                              the first NIC only); when Interfaces is set, each entry carries its own
+                              subnet mask and this field is unused.
                             type: string
-                        required:
-                        - gateway
-                        - subnetMask
                         type: object
                       volumes:
                         description: Volumes is a list of Volumes to attach to the
@@ -1362,8 +1365,11 @@ spec:
                               type: string
                             type: array
                           gateway:
-                            description: Gateway is the gateway IP address for the
-                              VM network.
+                            description: |-
+                              Gateway is the gateway IP address for the VM network.
+                              Required when Interfaces is not set (single-NIC configuration, applied to
+                              the first NIC only); when Interfaces is set, each entry carries its own
+                              gateway and this field is unused.
                             type: string
                           interfaces:
                             description: |-
@@ -1462,12 +1468,12 @@ spec:
                               type: string
                             type: array
                           subnetMask:
-                            description: SubnetMask is the subnet mask for the VM
-                              network (e.g. "255.255.0.0").
+                            description: |-
+                              SubnetMask is the subnet mask for the VM network (e.g. "255.255.0.0").
+                              Required when Interfaces is not set (single-NIC configuration, applied to
+                              the first NIC only); when Interfaces is set, each entry carries its own
+                              subnet mask and this field is unused.
                             type: string
-                        required:
-                        - gateway
-                        - subnetMask
                         type: object
                       volumes:
                         description: Volumes is a list of Volumes to attach to the

@@ -77,19 +77,30 @@ func validateHarvesterCluster(r *HarvesterCluster) (admission.Warnings, error) {
 
 	if r.Spec.VMNetworkConfig != nil {
 		vmCfg := r.Spec.VMNetworkConfig
-		if len(vmCfg.GetIPPoolRefs()) == 0 && vmCfg.IPPool == nil {
-			errs = append(errs, "spec.vmNetworkConfig requires one of ipPoolRef, ipPoolRefs or ipPool")
+
+		// The top-level ipPool/ipPoolRef(s), gateway and subnetMask configure the
+		// first NIC only, so they are required in single-NIC mode (no per-NIC
+		// interfaces). When interfaces are set, each entry carries its own pool,
+		// gateway and subnet mask and the top-level fields are unused.
+		if len(vmCfg.Interfaces) == 0 {
+			if len(vmCfg.GetIPPoolRefs()) == 0 && vmCfg.IPPool == nil {
+				errs = append(errs, "spec.vmNetworkConfig requires one of ipPoolRef, ipPoolRefs or ipPool")
+			}
+
+			if vmCfg.Gateway == "" {
+				errs = append(errs, "spec.vmNetworkConfig.gateway is required when vmNetworkConfig.interfaces is not set")
+			}
+
+			if vmCfg.SubnetMask == "" {
+				errs = append(errs, "spec.vmNetworkConfig.subnetMask is required when vmNetworkConfig.interfaces is not set")
+			}
 		}
 
-		if vmCfg.Gateway == "" {
-			errs = append(errs, "spec.vmNetworkConfig.gateway is required")
-		} else if net.ParseIP(vmCfg.Gateway) == nil {
+		if vmCfg.Gateway != "" && net.ParseIP(vmCfg.Gateway) == nil {
 			errs = append(errs, fmt.Sprintf("spec.vmNetworkConfig.gateway %q is not a valid IP address", vmCfg.Gateway))
 		}
 
-		if vmCfg.SubnetMask == "" {
-			errs = append(errs, "spec.vmNetworkConfig.subnetMask is required")
-		} else if net.ParseIP(vmCfg.SubnetMask) == nil {
+		if vmCfg.SubnetMask != "" && net.ParseIP(vmCfg.SubnetMask) == nil {
 			errs = append(errs, fmt.Sprintf("spec.vmNetworkConfig.subnetMask %q is not a valid IP address", vmCfg.SubnetMask))
 		}
 
