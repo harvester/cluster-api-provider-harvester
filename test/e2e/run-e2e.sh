@@ -595,6 +595,252 @@ YAML")
     else
         fail_test "Webhook: invalid HarvesterCluster was not rejected (output: $result)"
     fi
+
+    # Test 6: Accept HarvesterCluster (v1beta1) with interfaces-only vmNetworkConfig:
+    # no top-level gateway/subnetMask/ipPoolRef, each interfaces[] entry carries its own
+    # pool, gateway and subnet mask (multi-NIC layout).
+    log_info "Testing acceptance of HarvesterCluster v1beta1 with interfaces-only vmNetworkConfig"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-test-multinic-interfaces
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: test-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    interfaces:
+      - ipPoolRef: oob2
+        gateway: 10.10.0.1
+        subnetMask: 255.255.254.0
+      - ipPoolRef: production
+        gateway: 10.11.0.1
+        subnetMask: 255.255.254.0
+    dnsServers:
+      - 1.1.1.1
+    dnsSearch:
+      - example.com
+YAML")
+
+    if echo "$result" | grep -q "created\\|configured\\|unchanged"; then
+        pass_test "Webhook: accepted interfaces-only vmNetworkConfig (multi-NIC)"
+        kubectl_rancher "delete harvestercluster -n default e2e-test-multinic-interfaces" >/dev/null 2>&1 || true
+    else
+        fail_test "Webhook: interfaces-only vmNetworkConfig was rejected (output: $result)"
+    fi
+
+    # Test 7: Accept the same interfaces-only layout on v1alpha1 (v1alpha1 webhook path)
+    log_info "Testing acceptance of HarvesterCluster v1alpha1 with interfaces-only vmNetworkConfig"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: HarvesterCluster
+metadata:
+  name: e2e-test-multinic-interfaces-v1alpha1
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: test-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    interfaces:
+      - ipPoolRef: oob2
+        gateway: 10.10.0.1
+        subnetMask: 255.255.254.0
+YAML")
+
+    if echo "$result" | grep -q "created\\|configured\\|unchanged"; then
+        pass_test "Webhook: accepted v1alpha1 interfaces-only vmNetworkConfig"
+        kubectl_rancher "delete harvestercluster -n default e2e-test-multinic-interfaces-v1alpha1" >/dev/null 2>&1 || true
+    else
+        fail_test "Webhook: v1alpha1 interfaces-only vmNetworkConfig was rejected (output: $result)"
+    fi
+
+    # Test 8: Accept single-NIC HarvesterCluster (v1beta1) with top-level pool+gateway+subnetMask
+    log_info "Testing acceptance of HarvesterCluster v1beta1 with single-NIC vmNetworkConfig"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-test-singlenic
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: test-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    ipPoolRef: pool-a
+    gateway: 10.10.0.1
+    subnetMask: 255.255.255.0
+YAML")
+
+    if echo "$result" | grep -q "created\\|configured\\|unchanged"; then
+        pass_test "Webhook: accepted single-NIC vmNetworkConfig"
+        kubectl_rancher "delete harvestercluster -n default e2e-test-singlenic" >/dev/null 2>&1 || true
+    else
+        fail_test "Webhook: single-NIC vmNetworkConfig was rejected (output: $result)"
+    fi
+
+    # Test 9: Reject vmNetworkConfig without interfaces and without top-level gateway
+    log_info "Testing rejection of vmNetworkConfig missing gateway (no interfaces)"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-test-no-gateway
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: test-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    ipPoolRef: pool-a
+    subnetMask: 255.255.255.0
+YAML")
+
+    if echo "$result" | grep -q "spec.vmNetworkConfig.gateway is required"; then
+        pass_test "Webhook: rejected vmNetworkConfig without gateway when interfaces is not set"
+    else
+        fail_test "Webhook: missing gateway was not rejected (output: $result)"
+    fi
+
+    # Test 10: Reject interfaces entry with invalid gateway IP
+    log_info "Testing rejection of interfaces[0] with invalid gateway"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-test-bad-iface-gateway
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: test-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    interfaces:
+      - ipPoolRef: pool-a
+        gateway: not-an-ip
+        subnetMask: 255.255.255.0
+YAML")
+
+    if echo "$result" | grep -q "interfaces\[0\].gateway.*is not a valid IP address"; then
+        pass_test "Webhook: rejected interfaces[0] with invalid gateway IP"
+    else
+        fail_test "Webhook: invalid interfaces[0].gateway was not rejected (output: $result)"
+    fi
+
+    # Test 11: Reject interfaces entry without any pool reference
+    log_info "Testing rejection of interfaces[0] without ipPoolRef/ipPoolRefs"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-test-iface-no-pool
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: test-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    interfaces:
+      - gateway: 10.10.0.1
+        subnetMask: 255.255.255.0
+YAML")
+
+    if echo "$result" | grep -q "interfaces\[0\] requires one of ipPoolRef or ipPoolRefs"; then
+        pass_test "Webhook: rejected interfaces[0] without pool reference"
+    else
+        fail_test "Webhook: interfaces[0] without pool was not rejected (output: $result)"
+    fi
+
+    # Test 12: Accept HarvesterMachine (v1beta1) with per-NIC networkConfigs matching networks
+    log_info "Testing acceptance of HarvesterMachine v1beta1 with networkConfigs (multi-NIC)"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterMachine
+metadata:
+  name: e2e-test-multinic-machine
+  namespace: default
+spec:
+  cpu: 2
+  memory: \\\"4Gi\\\"
+  sshUser: sles
+  sshKeyPair: test-key
+  volumes:
+    - volumeType: image
+      imageName: default/test-image
+      volumeSize: \\\"20Gi\\\"
+  networks:
+    - default/oob
+    - default/production
+  networkConfigs:
+    - ipPoolRef: oob2
+      gateway: 10.10.0.1
+      subnetMask: 255.255.254.0
+    - ipPoolRef: production
+      gateway: 10.11.0.1
+      subnetMask: 255.255.254.0
+YAML")
+
+    if echo "$result" | grep -q "created\\|configured\\|unchanged"; then
+        pass_test "Webhook: accepted HarvesterMachine with networkConfigs"
+        kubectl_rancher "delete harvestermachine -n default e2e-test-multinic-machine" >/dev/null 2>&1 || true
+    else
+        fail_test "Webhook: HarvesterMachine with networkConfigs was rejected (output: $result)"
+    fi
+
+    # Test 13: Reject HarvesterMachine with more networkConfigs entries than networks
+    log_info "Testing rejection of networkConfigs with more entries than networks"
+    result=$(kubectl_rancher "apply -f - <<'YAML' 2>&1 || true
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterMachine
+metadata:
+  name: e2e-test-too-many-nic-cfgs
+  namespace: default
+spec:
+  cpu: 2
+  memory: \\\"4Gi\\\"
+  sshUser: sles
+  sshKeyPair: test-key
+  volumes:
+    - volumeType: image
+      imageName: default/test-image
+      volumeSize: \\\"20Gi\\\"
+  networks:
+    - default/production
+  networkConfigs:
+    - ipPoolRef: oob2
+      gateway: 10.10.0.1
+      subnetMask: 255.255.254.0
+    - ipPoolRef: production
+      gateway: 10.11.0.1
+      subnetMask: 255.255.254.0
+YAML")
+
+    if echo "$result" | grep -q "has 2 entries but the machine has only 1 networks"; then
+        pass_test "Webhook: rejected networkConfigs with more entries than networks"
+    else
+        fail_test "Webhook: oversized networkConfigs was not rejected (output: $result)"
+    fi
 }
 
 # --- Summary ---
