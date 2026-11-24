@@ -1121,7 +1121,9 @@ Each allocation is recorded in `status.allocatedIPAddresses` (one entry per NIC,
 network, IP and pool) and released on machine deletion; `status.allocatedIPAddress` /
 `status.allocatedPoolRef` keep mirroring the first NIC for backward compatibility. In the
 generated cloud-init network config, every NIC with an allocation gets a `static` subnet
-with its own gateway and netmask (matched by MAC address); the others get `dhcp`.
+with its own netmask (matched by MAC address); the others get `dhcp`. The default route is
+taken from the first NIC that has a `gateway` only — a gateway per NIC would install one
+default route per interface in the guest.
 
 Validation (webhook): `spec.networkConfigs` cannot have more entries than `spec.networks`,
 each entry requires `ipPoolRef` or `ipPoolRefs` plus a valid-IP `gateway` and `subnetMask`,

@@ -267,7 +267,7 @@ var _ = Describe("allocateVMIP with per-NIC pools", func() {
 })
 
 var _ = Describe("buildNetworkDataStatic with per-NIC static IPs", func() {
-	It("should write a static subnet with each NIC's own gateway and mask, DHCP on the rest", func() {
+	It("should write a static subnet with each NIC's own mask, the default route (gateway) on the first NIC only, DHCP on the rest", func() {
 		machine := &infrav1.HarvesterMachine{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-vm-0", Namespace: "test-ns", UID: "uid-1"},
 			Spec: infrav1.HarvesterMachineSpec{
@@ -301,11 +301,13 @@ var _ = Describe("buildNetworkDataStatic with per-NIC static IPs", func() {
 		Expect(result).To(ContainSubstring("address: 172.16.3.40"))
 		Expect(result).To(ContainSubstring("netmask: 255.255.255.0"))
 		Expect(result).To(ContainSubstring("gateway: 172.16.0.1"))
-		// NIC 1: static with its own (different) gateway/mask
+		// NIC 1: static with its own (different) mask, but no default route —
+		// emitting a gateway per NIC would install one default route per interface
 		Expect(result).To(ContainSubstring("name: eth1"))
 		Expect(result).To(ContainSubstring("address: 172.17.3.40"))
 		Expect(result).To(ContainSubstring("netmask: 255.255.0.0"))
-		Expect(result).To(ContainSubstring("gateway: 172.17.0.1"))
+		Expect(result).ToNot(ContainSubstring("gateway: 172.17.0.1"))
+		Expect(CountOccurrences(result, "gateway:")).To(Equal(1))
 		// NIC 2: no allocation -> DHCP
 		Expect(result).To(ContainSubstring("name: eth2"))
 		// one dhcp entry only (for eth2)

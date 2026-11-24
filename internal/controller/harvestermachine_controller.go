@@ -1319,6 +1319,12 @@ func buildNetworkDataStatic(hvScope *Scope) string {
 
 	b.WriteString("version: 1\nconfig:\n")
 
+	// A static subnet's "gateway" becomes a default route in the guest, so it may
+	// be emitted for the first NIC that has one only: one gateway per NIC would
+	// install one default route per interface. Each NIC's own subnet stays
+	// reachable through its connected route, no gateway needed.
+	defaultRouteSet := false
+
 	for i, network := range machine.Spec.Networks {
 		ethName := "eth" + strconv.Itoa(i)
 		cfg := nicCfgs[i]
@@ -1328,6 +1334,7 @@ func buildNetworkDataStatic(hvScope *Scope) string {
 
 		switch {
 		case allocatedIPs[network] != "":
+
 			subnetMask := cfg.SubnetMask
 			if subnetMask == "" {
 				subnetMask = defaultMask
@@ -1338,11 +1345,23 @@ func buildNetworkDataStatic(hvScope *Scope) string {
 				gateway = netCfg.Gateway
 			}
 
-			fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
-				allocatedIPs[network], subnetMask, gateway)
+			if gateway != "" && !defaultRouteSet {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
+					allocatedIPs[network], subnetMask, gateway)
+				defaultRouteSet = true
+			} else {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n",
+					allocatedIPs[network], subnetMask)
+			}
 		case i == 0 && netCfg != nil:
-			fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
-				netCfg.Address, defaultMask, netCfg.Gateway)
+			if netCfg.Gateway != "" && !defaultRouteSet {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
+					netCfg.Address, defaultMask, netCfg.Gateway)
+				defaultRouteSet = true
+			} else {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n",
+					netCfg.Address, defaultMask)
+			}
 		default:
 			b.WriteString("      - type: dhcp\n")
 		}
@@ -1457,7 +1476,12 @@ case "$reason" in
     done
     ip addr add $new_ip_address/$prefix dev $interface
     if [ -n "$new_routers" ]; then
-      ip route add default via $new_routers dev $interface 2>/dev/null
+      # $new_routers may list several routers; only the first successful add
+      # installs the default route (later ones fail with EEXIST, silenced), so a
+      # VM with several NICs ends up with exactly one default route.
+      for router in $new_routers; do
+        ip route add default via "$router" dev "$interface" 2>/dev/null
+      done
     fi
     if [ -n "$new_domain_name_servers" ]; then
       : > /etc/resolv.conf
