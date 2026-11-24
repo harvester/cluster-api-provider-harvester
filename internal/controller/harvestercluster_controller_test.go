@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util/conditions"
 
 	infrav1 "github.com/harvester/cluster-api-provider-harvester/api/v1beta1"
 	hvclient "github.com/harvester/cluster-api-provider-harvester/pkg/clientset/versioned"
@@ -894,7 +895,7 @@ var _ = Describe("reconcileVMIPPool", func() {
 
 		err := r.reconcileVMIPPool(scope)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("requires either IPPoolRef or IPPool"))
+		Expect(err.Error()).To(ContainSubstring("VMNetworkConfig requires either"))
 	})
 
 	It("should return error when IPPoolRef references non-existent pool", func() {
@@ -932,6 +933,92 @@ var _ = Describe("reconcileVMIPPool", func() {
 
 		err := r.reconcileVMIPPool(scope)
 		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not found"))
+	})
+
+	It("should succeed with pools referenced only from interfaces", func() {
+
+		hvFake := hvfake.NewSimpleClientset()
+
+		for _, name := range []string{"oob2", "production"} {
+			_, err := hvFake.LoadbalancerV1beta1().IPPools().Create(context.TODO(), &lbv1beta1.IPPool{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec:       lbv1beta1.IPPoolSpec{Description: "VM pool"},
+			}, metav1.CreateOptions{})
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		scheme := runtime.NewScheme()
+		_ = corev1.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+		_ = clusterv1.AddToScheme(scheme)
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		r := &HarvesterClusterReconciler{
+			Client: fakeClient,
+			Scheme: scheme,
+		}
+
+		scope := &ClusterScope{
+			Ctx:    context.TODO(),
+			Logger: log.FromContext(context.TODO()),
+			HarvesterCluster: &infrav1.HarvesterCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+				Spec: infrav1.HarvesterClusterSpec{
+					TargetNamespace: "default",
+					VMNetworkConfig: &infrav1.VMNetworkConfig{
+						// No top-level pool: per-NIC pools only.
+						Interfaces: []infrav1.NetworkInterfaceConfig{
+							{IPPoolRef: "oob2", Gateway: "11.0.0.1", SubnetMask: "255.255.254.0"},
+							{IPPoolRef: "production", Gateway: "10.0.0.1", SubnetMask: "255.255.254.0"},
+						},
+					},
+				},
+			},
+			HarvesterClient: hvFake,
+			ReconcileClient: fakeClient,
+		}
+
+		err := r.reconcileVMIPPool(scope)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(conditions.IsTrue(scope.HarvesterCluster, infrav1.VMIPPoolReadyCondition)).To(BeTrue())
+	})
+
+	It("should return error when an interface references a non-existent pool", func() {
+
+		hvFake := hvfake.NewSimpleClientset()
+		scheme := runtime.NewScheme()
+		_ = corev1.AddToScheme(scheme)
+		_ = infrav1.AddToScheme(scheme)
+		_ = clusterv1.AddToScheme(scheme)
+		fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		r := &HarvesterClusterReconciler{
+			Client: fakeClient,
+			Scheme: scheme,
+		}
+
+		scope := &ClusterScope{
+			Ctx:    context.TODO(),
+			Logger: log.FromContext(context.TODO()),
+			HarvesterCluster: &infrav1.HarvesterCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
+				Spec: infrav1.HarvesterClusterSpec{
+					TargetNamespace: "default",
+					VMNetworkConfig: &infrav1.VMNetworkConfig{
+						Interfaces: []infrav1.NetworkInterfaceConfig{
+							{IPPoolRef: "missing-pool", Gateway: "11.0.0.1", SubnetMask: "255.255.254.0"},
+						},
+					},
+				},
+			},
+			HarvesterClient: hvFake,
+			ReconcileClient: fakeClient,
+		}
+
+		err := r.reconcileVMIPPool(scope)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("missing-pool"))
 		Expect(err.Error()).To(ContainSubstring("not found"))
 	})
 })
@@ -2803,7 +2890,7 @@ var _ = Describe("ReconcileNormal with POOL IPAM and VMNetworkConfig", func() {
 
 		result, err := r.ReconcileNormal(scope)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("requires either IPPoolRef or IPPool"))
+		Expect(err.Error()).To(ContainSubstring("VMNetworkConfig requires either"))
 		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 	})
 

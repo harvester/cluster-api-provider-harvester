@@ -1117,12 +1117,22 @@ func (r *HarvesterClusterReconciler) reconcileVMIPPool(scope *ClusterScope) erro
 		return nil
 	}
 
-	// If IPPoolRefs or IPPoolRef is set, verify all pools exist
+	// If IPPoolRefs or IPPoolRef is set, verify all pools exist. Pool references
+	// can also come from the per-NIC interfaces entries.
 	poolRefs := vmNetCfg.GetIPPoolRefs()
+	for i := range vmNetCfg.Interfaces {
+		poolRefs = append(poolRefs, vmNetCfg.Interfaces[i].GetIPPoolRefs()...)
+	}
 	if len(poolRefs) > 0 {
+		seen := make(map[string]struct{}, len(poolRefs))
 		var readyPools []string
 
 		for _, ref := range poolRefs {
+			if _, ok := seen[ref]; ok {
+				continue
+			}
+			seen[ref] = struct{}{}
+
 			_, err := scope.HarvesterClient.LoadbalancerV1beta1().IPPools().Get(
 				scope.Ctx, ref, v1.GetOptions{})
 			if err != nil {
@@ -1151,7 +1161,7 @@ func (r *HarvesterClusterReconciler) reconcileVMIPPool(scope *ClusterScope) erro
 
 	// IPPool is set, create pool with generated name
 	if vmNetCfg.IPPool == nil {
-		return errors.New("VMNetworkConfig requires either IPPoolRef or IPPool to be set")
+		return errors.New("VMNetworkConfig requires either IPPoolRef, IPPoolRefs, IPPool or per-interface ipPoolRef/ipPoolRefs to be set")
 	}
 
 	poolName := locutil.GenerateRFC1035Name([]string{
