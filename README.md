@@ -404,8 +404,8 @@ Harvester HCI (target)
 | `spec.identitySecret.name` | string | Yes | Secret containing Harvester kubeconfig |
 | `spec.identitySecret.namespace` | string | Yes | Namespace of identity secret |
 | `spec.loadBalancerConfig.ipamType` | string | Yes | `pool` or `dhcp` |
-| `spec.vmNetworkConfig.gateway` | string | Yes* | Gateway IP (*required for pool IPAM) |
-| `spec.vmNetworkConfig.subnetMask` | string | Yes* | Subnet mask (e.g. "255.255.0.0") |
+| `spec.vmNetworkConfig.gateway` | string | Yes* | Gateway IP (*required for pool IPAM when `interfaces` is not set) |
+| `spec.vmNetworkConfig.subnetMask` | string | Yes* | Subnet mask (e.g. "255.255.0.0"; *required for pool IPAM when `interfaces` is not set) |
 | `spec.vmNetworkConfig.ipPoolRef` | string | No | Reference to a Harvester IPPool |
 | `spec.vmNetworkConfig.ipPoolRefs` | []string | No | Multiple pools, ordered fallback + network-aware selection (a pool whose `selector.network` matches one of the machine's networks) |
 | `spec.vmNetworkConfig.ipPool` | object | No | Inline IPPool to create in Harvester (cluster level only) |

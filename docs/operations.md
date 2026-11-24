@@ -854,9 +854,9 @@ Requirements:
 | `spec.identitySecret.name` | Required |
 | `spec.identitySecret.namespace` | Required |
 | `spec.loadBalancerConfig.ipamType` | Must be `"dhcp"` or `"pool"` |
-| `spec.vmNetworkConfig.gateway` | Required, must be a valid IP address |
-| `spec.vmNetworkConfig.subnetMask` | Required, must be a valid IP address format |
-| `spec.vmNetworkConfig.ipPoolRef` or `ipPoolRefs` or `ipPool` | At least one must be set when vmNetworkConfig is specified |
+| `spec.vmNetworkConfig.gateway` | Required when `interfaces` is not set; must be a valid IP address |
+| `spec.vmNetworkConfig.subnetMask` | Required when `interfaces` is not set; must be a valid IP address format |
+| `spec.vmNetworkConfig.ipPoolRef` or `ipPoolRefs` or `ipPool` | At least one must be set when vmNetworkConfig is specified and `interfaces` is empty; each `interfaces[]` entry requires its own `ipPoolRef`/`ipPoolRefs` |
 | `spec.vmNetworkConfig.interfaces[]` | Per-NIC pool configs (parallel to the machine's `spec.networks`); each entry requires `ipPoolRef`/`ipPoolRefs` and valid-IP `gateway`/`subnetMask` |
 
 **HarvesterMachine**:
@@ -874,7 +874,7 @@ Requirements:
 | `spec.networks` | At least one network required |
 | `spec.networkConfig.address` | Required when networkConfig is set |
 | `spec.networkConfig.gateway` | Required and must be a valid IP when networkConfig is set |
-| `spec.vmNetworkConfig` | Mutually exclusive with `networkConfig`; requires `ipPoolRef` or `ipPoolRefs` (inline `ipPool` is rejected at the machine level); `gateway` and `subnetMask` required and must be valid IPs |
+| `spec.vmNetworkConfig` | Mutually exclusive with `networkConfig`; requires `ipPoolRef` or `ipPoolRefs` when `interfaces` is not set (inline `ipPool` is rejected at the machine level); `gateway` and `subnetMask` required when `interfaces` is not set and must be valid IPs |
 | `spec.networkConfigs[]` | Per-NIC pool configs, parallel to `spec.networks` (at most one entry per network); each entry requires `ipPoolRef`/`ipPoolRefs` and valid-IP `gateway`/`subnetMask`; mutually exclusive with `networkConfig` |
 | `spec.firmware.secureBoot` | Requires `spec.firmware.efi` to be true |
 
@@ -1099,7 +1099,7 @@ Cluster level (`HarvesterCluster`), as the default for all machines of the clust
 ```yaml
 spec:
   vmNetworkConfig:
-    ipPoolRef: "pool-a"          # still applies to the first NIC
+    ipPoolRef: "pool-a"          # optional fallback for NIC 0 only (unused when interfaces covers it)
     gateway: "172.16.0.1"
     subnetMask: "255.255.0.0"
     interfaces:                  # interfaces[i] -> NIC on the machine's networks[i]
