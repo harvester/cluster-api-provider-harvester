@@ -60,3 +60,132 @@ func TestValidateVMNetworkConfigPoolSources(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateClusterVMNetworkConfigSingleNIC(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     *VMNetworkConfig
+		wantErr string
+	}{
+		{"missing gateway without interfaces", &VMNetworkConfig{IPPoolRef: "pool-a", SubnetMask: "255.255.255.0"}, "gateway is required"},
+		{"missing subnetMask without interfaces", &VMNetworkConfig{IPPoolRef: "pool-a", Gateway: "10.0.0.1"}, "subnetMask is required"},
+		{"missing pool without interfaces", &VMNetworkConfig{Gateway: "10.0.0.1", SubnetMask: "255.255.255.0"}, "ipPoolRefs"},
+		{"valid single-NIC", &VMNetworkConfig{IPPoolRef: "pool-a", Gateway: "10.0.0.1", SubnetMask: "255.255.255.0"}, ""},
+	}
+	for _, tc := range cases {
+		c := validCluster()
+		c.Spec.VMNetworkConfig = tc.cfg
+
+		_, err := validateHarvesterCluster(c)
+
+		if tc.wantErr == "" && err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+		}
+
+		if tc.wantErr != "" && err == nil {
+			t.Errorf("%s: expected an error", tc.name)
+		}
+
+		if tc.wantErr != "" && err != nil && !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: error should mention %q: %v", tc.name, tc.wantErr, err)
+		}
+	}
+}
+
+func TestValidateClusterVMNetworkConfigInterfaces(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     *VMNetworkConfig
+		wantErr string
+	}{
+		{
+			"valid interfaces",
+			&VMNetworkConfig{
+				IPPoolRef:  "pool-a",
+				Gateway:    "172.16.0.1",
+				SubnetMask: "255.255.255.0",
+				Interfaces: []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "172.16.0.1", SubnetMask: "255.255.255.0"},
+					{IPPoolRefs: []string{"pool-b", "pool-c"}, Gateway: "172.17.0.1", SubnetMask: "255.255.0.0"},
+				},
+			},
+			"",
+		},
+		{
+			"interface without pool is rejected",
+			&VMNetworkConfig{
+				IPPoolRef:  "pool-a",
+				Gateway:    "172.16.0.1",
+				SubnetMask: "255.255.255.0",
+				Interfaces: []NetworkInterfaceConfig{
+					{Gateway: "172.17.0.1", SubnetMask: "255.255.0.0"},
+				},
+			},
+			"interfaces[0] requires one of ipPoolRef or ipPoolRefs",
+		},
+		{
+			"interface with invalid gateway is rejected",
+			&VMNetworkConfig{
+				IPPoolRef:  "pool-a",
+				Gateway:    "172.16.0.1",
+				SubnetMask: "255.255.255.0",
+				Interfaces: []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-b", Gateway: "nope", SubnetMask: "255.255.0.0"},
+				},
+			},
+			"interfaces[0].gateway",
+		},
+		{
+			"interface with invalid subnet mask is rejected",
+			&VMNetworkConfig{
+				IPPoolRef:  "pool-a",
+				Gateway:    "172.16.0.1",
+				SubnetMask: "255.255.255.0",
+				Interfaces: []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-b", Gateway: "172.17.0.1", SubnetMask: "nope"},
+				},
+			},
+			"interfaces[0].subnetMask",
+		},
+		{
+			"interfaces without top-level gateway, subnetMask or pool are valid",
+			&VMNetworkConfig{
+				Interfaces: []NetworkInterfaceConfig{
+					{IPPoolRef: "oob2", Gateway: "11.0.0.1", SubnetMask: "255.255.254.0"},
+					{IPPoolRef: "production", Gateway: "10.0.0.1", SubnetMask: "255.255.254.0"},
+				},
+				DNSServers: []string{"1.1.1.1", "2.2.2.2"},
+				DNSSearch:  []string{"cdc.fr"},
+			},
+			"",
+		},
+		{
+			"invalid top-level gateway is rejected even when interfaces are set",
+			&VMNetworkConfig{
+				Gateway: "nope",
+				Interfaces: []NetworkInterfaceConfig{
+					{IPPoolRef: "pool-a", Gateway: "172.16.0.1", SubnetMask: "255.255.255.0"},
+				},
+			},
+			"spec.vmNetworkConfig.gateway",
+		},
+	}
+	for _, tc := range cases {
+		c := validCluster()
+		c.Spec.VMNetworkConfig = tc.cfg
+
+		_, err := validateHarvesterCluster(c)
+
+		if tc.wantErr == "" && err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.name, err)
+		}
+
+		if tc.wantErr != "" && err == nil {
+			t.Errorf("%s: expected an error", tc.name)
+		}
+
+		if tc.wantErr != "" && err != nil && !strings.Contains(err.Error(), tc.wantErr) {
+			t.Errorf("%s: error should mention %q: %v", tc.name, tc.wantErr, err)
+		}
+	}
+}

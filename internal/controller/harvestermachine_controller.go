@@ -350,11 +350,12 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 	// mirrored to Machine.status.failureDomain by the core controller)
 	hvScope.HarvesterMachine.Status.FailureDomain = effectiveFailureDomain(hvScope)
 
-	// Resolve effective network config: pool allocation (machine-level
-	// vmNetworkConfig taking precedence over the cluster-level one) or
-	// machine-level static config
-	if effectiveVMNetworkConfig(hvScope) != nil && hvScope.HarvesterMachine.Spec.NetworkConfig == nil {
-		// Allocate IP from cluster-level VM IP pool
+	// Resolve effective network config: pool allocation (one IP per NIC, from
+	// machine-level networkConfigs, cluster-level vmNetworkConfig.interfaces, or
+	// the top-level vmNetworkConfig for the first NIC) or machine-level static
+	// config
+	if hvScope.HarvesterMachine.Spec.NetworkConfig == nil && nicPoolConfigured(hvScope) {
+		// Allocate one IP per NIC from the configured VM IP pools
 		allocErr := r.allocateVMIP(hvScope)
 		if allocErr != nil {
 			logger.Error(allocErr, "failed to allocate VM IP from pool")
@@ -369,19 +370,30 @@ func (r *HarvesterMachineReconciler) ReconcileNormal(hvScope *Scope) (res reconc
 			return ctrl.Result{RequeueAfter: requeueTimeShort}, allocErr
 		}
 
-		vmNetCfg := effectiveVMNetworkConfig(hvScope)
-		hvScope.EffectiveNetworkConfig = &infrav1.NetworkConfig{
-			Address:    hvScope.HarvesterMachine.Status.AllocatedIPAddress,
-			Gateway:    vmNetCfg.Gateway,
-			DNSServers: vmNetCfg.DNSServers,
-			DNSSearch:  vmNetCfg.DNSSearch,
+		if nicCfgs := effectiveNICConfigs(hvScope); len(nicCfgs) > 0 {
+			hvScope.EffectiveNetworkConfig = &infrav1.NetworkConfig{
+				Address:    hvScope.HarvesterMachine.Status.AllocatedIPAddress,
+				Gateway:    nicCfgs[0].Gateway,
+				DNSServers: nicCfgs[0].DNSServers,
+				DNSSearch:  nicCfgs[0].DNSSearch,
+			}
+		}
+
+		allocDesc := make([]string, 0, len(hvScope.HarvesterMachine.Status.AllocatedIPAddresses))
+		for _, a := range hvScope.HarvesterMachine.Status.AllocatedIPAddresses {
+			allocDesc = append(allocDesc, fmt.Sprintf("%s from pool %s (network %s)", a.IPAddress, a.PoolRef, a.Network))
+		}
+
+		if len(allocDesc) == 0 && hvScope.HarvesterMachine.Status.AllocatedIPAddress != "" {
+			allocDesc = append(allocDesc, fmt.Sprintf("%s from pool %s",
+				hvScope.HarvesterMachine.Status.AllocatedIPAddress, hvScope.HarvesterMachine.Status.AllocatedPoolRef))
 		}
 
 		conditions.Set(hvScope.HarvesterMachine, metav1.Condition{
 			Type:    infrav1.VMIPAllocatedCondition,
 			Status:  metav1.ConditionTrue,
 			Reason:  infrav1.VMIPAllocatedReason,
-			Message: fmt.Sprintf("Allocated IP %s from pool", hvScope.HarvesterMachine.Status.AllocatedIPAddress),
+			Message: fmt.Sprintf("Allocated IPs: %s", strings.Join(allocDesc, ", ")),
 		})
 	} else if hvScope.HarvesterMachine.Spec.NetworkConfig != nil {
 		// Use machine-level static network config
@@ -925,7 +937,7 @@ runcmd:
 	// the kernel presents network-layer data to BPF, causing all DHCP responses to be silently dropped.
 	// ISC dhclient uses AF_PACKET SOCK_RAW (LPF) which works correctly.
 	cloudInitDHCP := ""
-	if hvScope.EffectiveNetworkConfig == nil && len(hvScope.HarvesterMachine.Spec.Networks) > 0 {
+	if !anyNICStatic(hvScope) && len(hvScope.HarvesterMachine.Spec.Networks) > 0 {
 		cloudInitDHCP = buildDHCPCloudInit(hvScope)
 	}
 
@@ -941,10 +953,12 @@ runcmd:
 		"userdata": finalCloudInit,
 	}
 
-	// Build network-config for NICs. For static mode, generate v1 networkdata with IP configuration.
-	// For DHCP mode, skip networkdata entirely — dhclient handles network setup via bootcmd,
+	// Build network-config for NICs. When at least one NIC has a static
+	// configuration, generate v1 networkdata with a static subnet for each
+	// allocated NIC and DHCP for the others. In pure DHCP mode, skip
+	// networkdata entirely — dhclient handles network setup via bootcmd,
 	// and generating networkdata would cause wicked to interfere with the DHCP-assigned IP.
-	if hvScope.EffectiveNetworkConfig != nil && len(hvScope.HarvesterMachine.Spec.Networks) > 0 {
+	if anyNICStatic(hvScope) && len(hvScope.HarvesterMachine.Spec.Networks) > 0 {
 		secretData["networkdata"] = []byte(buildNetworkDataStatic(hvScope))
 	}
 
@@ -1170,46 +1184,219 @@ func nicMACAddress(machine *infrav1.HarvesterMachine, index int) string {
 	return net.HardwareAddr{sum[0]&^0x03 | 0x02, sum[1], sum[2], sum[3], sum[4], sum[5]}.String()
 }
 
-// buildNetworkDataStatic generates cloud-init network-config v1 with a static IP on the
-// first NIC and DHCP on additional NICs. Each entry is matched by MAC address, so the
+// nicNetworkConfig is the resolved network configuration of a single NIC of the
+// VM: entry i corresponds to spec.networks[i] (interface nic-i+1).
+type nicNetworkConfig struct {
+	Network    string
+	PoolRefs   []string
+	Gateway    string
+	SubnetMask string
+	DNSServers []string
+	DNSSearch  []string
+}
+
+// effectiveNICConfigs resolves the per-NIC network configuration of the machine,
+// one entry per entry of spec.networks. Resolution order for NIC i:
+// machine spec.networkConfigs[i] > effective vmNetworkConfig.interfaces[i] >
+// (first NIC only) the top-level effective vmNetworkConfig. A NIC without any
+// entry gets no pool and stays on DHCP.
+//
+//nolint:funcorder
+func effectiveNICConfigs(hvScope *Scope) []nicNetworkConfig {
+	machine := hvScope.HarvesterMachine
+	networks := machine.Spec.Networks
+	cfgs := make([]nicNetworkConfig, len(networks))
+
+	vmNetCfg := effectiveVMNetworkConfig(hvScope)
+
+	for i, network := range networks {
+		cfgs[i].Network = network
+
+		switch {
+		case i < len(machine.Spec.NetworkConfigs):
+			c := &machine.Spec.NetworkConfigs[i]
+			cfgs[i].PoolRefs = c.GetIPPoolRefs()
+			cfgs[i].Gateway = c.Gateway
+			cfgs[i].SubnetMask = c.SubnetMask
+		case vmNetCfg != nil && i < len(vmNetCfg.Interfaces):
+			c := &vmNetCfg.Interfaces[i]
+			cfgs[i].PoolRefs = c.GetIPPoolRefs()
+			cfgs[i].Gateway = c.Gateway
+			cfgs[i].SubnetMask = c.SubnetMask
+		case i == 0 && vmNetCfg != nil:
+			cfgs[i].PoolRefs = vmNetCfg.GetIPPoolRefs()
+			cfgs[i].Gateway = vmNetCfg.Gateway
+			cfgs[i].SubnetMask = vmNetCfg.SubnetMask
+		}
+	}
+
+	// DNS settings are global in cloud-init (single nameserver block): take them
+	// from the machine-level static networkConfig, else from the effective
+	// vmNetworkConfig.
+	var dnsServers, dnsSearch []string
+	if machine.Spec.NetworkConfig != nil {
+		dnsServers = machine.Spec.NetworkConfig.DNSServers
+		dnsSearch = machine.Spec.NetworkConfig.DNSSearch
+	} else if vmNetCfg != nil {
+		dnsServers = vmNetCfg.DNSServers
+		dnsSearch = vmNetCfg.DNSSearch
+	}
+
+	for i := range cfgs {
+		cfgs[i].DNSServers = dnsServers
+		cfgs[i].DNSSearch = dnsSearch
+	}
+
+	return cfgs
+}
+
+// nicPoolConfigured reports whether at least one NIC of the machine has IP pools
+// configured (machine-level networkConfigs, cluster-level vmNetworkConfig.interfaces,
+// or the top-level vmNetworkConfig for the first NIC).
+//
+//nolint:funcorder
+func nicPoolConfigured(hvScope *Scope) bool {
+	for _, cfg := range effectiveNICConfigs(hvScope) {
+		if len(cfg.PoolRefs) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// anyNICStatic reports whether at least one NIC of the machine gets a static IP
+// configuration: either an IP allocated from a pool for any NIC, or the
+// machine-level static networkConfig (first NIC).
+//
+//nolint:funcorder
+func anyNICStatic(hvScope *Scope) bool {
+	return hvScope.EffectiveNetworkConfig != nil ||
+		len(hvScope.HarvesterMachine.Status.AllocatedIPAddresses) > 0
+}
+
+// allocatedIPsByNetwork returns the allocated IP of each NIC, keyed by the
+// spec.networks entry the NIC is attached to. It falls back to the legacy
+// single-allocation status fields (first NIC) when the list is empty.
+//
+//nolint:funcorder
+func allocatedIPsByNetwork(hvScope *Scope) map[string]string {
+	machine := hvScope.HarvesterMachine
+	allocated := make(map[string]string, len(machine.Status.AllocatedIPAddresses))
+
+	for _, a := range machine.Status.AllocatedIPAddresses {
+		allocated[a.Network] = a.IPAddress
+	}
+
+	if len(allocated) == 0 && machine.Status.AllocatedIPAddress != "" {
+		network := ""
+		if len(machine.Spec.Networks) > 0 {
+			network = machine.Spec.Networks[0]
+		}
+
+		allocated[network] = machine.Status.AllocatedIPAddress
+	}
+
+	return allocated
+}
+
+// buildNetworkDataStatic generates cloud-init network-config v1: a static IP on
+// every NIC that has one allocated from a pool (with that NIC's own gateway and
+// subnet mask), DHCP on the others. Each entry is matched by MAC address, so the
 // configuration applies whatever name the guest gives the interface.
 func buildNetworkDataStatic(hvScope *Scope) string {
 	var b strings.Builder
 
+	machine := hvScope.HarvesterMachine
 	netCfg := hvScope.EffectiveNetworkConfig
-	subnetMask := "255.255.0.0" // default
+	nicCfgs := effectiveNICConfigs(hvScope)
+	allocatedIPs := allocatedIPsByNetwork(hvScope)
 
-	if vmNetCfg := effectiveVMNetworkConfig(hvScope); vmNetCfg != nil {
-		subnetMask = vmNetCfg.SubnetMask
+	defaultMask := "255.255.0.0"
+	if vmNetCfg := effectiveVMNetworkConfig(hvScope); vmNetCfg != nil && vmNetCfg.SubnetMask != "" {
+		defaultMask = vmNetCfg.SubnetMask
 	}
 
 	b.WriteString("version: 1\nconfig:\n")
 
-	for i := range hvScope.HarvesterMachine.Spec.Networks {
+	// A static subnet's "gateway" becomes a default route in the guest, so it may
+	// be emitted for the first NIC that has one only: one gateway per NIC would
+	// install one default route per interface. Each NIC's own subnet stays
+	// reachable through its connected route, no gateway needed.
+	defaultRouteSet := false
+
+	for i, network := range machine.Spec.Networks {
 		ethName := "eth" + strconv.Itoa(i)
+		cfg := nicCfgs[i]
 
 		fmt.Fprintf(&b, "  - type: physical\n    name: %s\n    mac_address: \"%s\"\n    subnets:\n",
-			ethName, nicMACAddress(hvScope.HarvesterMachine, i))
+			ethName, nicMACAddress(machine, i))
 
-		if i == 0 {
-			fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
-				netCfg.Address, subnetMask, netCfg.Gateway)
-		} else {
+		switch {
+		case allocatedIPs[network] != "":
+
+			subnetMask := cfg.SubnetMask
+			if subnetMask == "" {
+				subnetMask = defaultMask
+			}
+
+			gateway := cfg.Gateway
+			if gateway == "" && netCfg != nil {
+				gateway = netCfg.Gateway
+			}
+
+			if gateway != "" && !defaultRouteSet {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
+					allocatedIPs[network], subnetMask, gateway)
+				defaultRouteSet = true
+			} else {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n",
+					allocatedIPs[network], subnetMask)
+			}
+		case i == 0 && netCfg != nil:
+			if netCfg.Gateway != "" && !defaultRouteSet {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n        gateway: %s\n",
+					netCfg.Address, defaultMask, netCfg.Gateway)
+				defaultRouteSet = true
+			} else {
+				fmt.Fprintf(&b, "      - type: static\n        address: %s\n        netmask: %s\n",
+					netCfg.Address, defaultMask)
+			}
+		default:
 			b.WriteString("      - type: dhcp\n")
 		}
 	}
 
-	if len(netCfg.DNSServers) > 0 {
+	// DNS settings are global in cloud-init (single nameserver block): take them
+	// from the first NIC's effective config, which carries the machine/cluster DNS,
+	// falling back to the effective single-NIC config.
+	dnsServers, dnsSearch := []string(nil), []string(nil)
+	if len(nicCfgs) > 0 {
+		dnsServers = nicCfgs[0].DNSServers
+		dnsSearch = nicCfgs[0].DNSSearch
+	}
+
+	if netCfg != nil {
+		if len(dnsServers) == 0 {
+			dnsServers = netCfg.DNSServers
+		}
+
+		if len(dnsSearch) == 0 {
+			dnsSearch = netCfg.DNSSearch
+		}
+	}
+
+	if len(dnsServers) > 0 {
 		b.WriteString("  - type: nameserver\n    address:\n")
 
-		for _, dns := range netCfg.DNSServers {
+		for _, dns := range dnsServers {
 			fmt.Fprintf(&b, "      - %s\n", dns)
 		}
 
-		if len(netCfg.DNSSearch) > 0 {
+		if len(dnsSearch) > 0 {
 			b.WriteString("    search:\n")
 
-			for _, search := range netCfg.DNSSearch {
+			for _, search := range dnsSearch {
 				fmt.Fprintf(&b, "      - %s\n", search)
 			}
 		}
@@ -1289,7 +1476,12 @@ case "$reason" in
     done
     ip addr add $new_ip_address/$prefix dev $interface
     if [ -n "$new_routers" ]; then
-      ip route add default via $new_routers dev $interface 2>/dev/null
+      # $new_routers may list several routers; only the first successful add
+      # installs the default route (later ones fail with EEXIST, silenced), so a
+      # VM with several NICs ends up with exactly one default route.
+      for router in $new_routers; do
+        ip route add default via "$router" dev "$interface" 2>/dev/null
+      done
     fi
     if [ -n "$new_domain_name_servers" ]; then
       : > /etc/resolv.conf
@@ -1406,38 +1598,143 @@ func effectiveVMNetworkConfig(hvScope *Scope) *infrav1.VMNetworkConfig {
 	return hvScope.HarvesterCluster.Spec.VMNetworkConfig
 }
 
-// allocateVMIP allocates an IP from the effective VM IP pool configuration
-// (machine-level or cluster-level) for this machine.
-// It is idempotent: if an IP is already allocated, it returns early.
+// allocateVMIP allocates one IP per NIC of the machine from the pools of its
+// effective per-NIC network configuration (machine-level networkConfigs,
+// cluster-level vmNetworkConfig.interfaces, or the top-level vmNetworkConfig for
+// the first NIC). NICs without pools stay on DHCP. It is idempotent: IPs already
+// recorded in the machine status (or already present in a pool under the machine
+// ID) are reused.
 //
 //nolint:funcorder
 func (r *HarvesterMachineReconciler) allocateVMIP(hvScope *Scope) error {
 	machine := hvScope.HarvesterMachine
 	logger := hvScope.Logger
 
-	// Return early if already allocated (idempotent)
-	if machine.Status.AllocatedIPAddress != "" {
-		logger.V(3).Info("VM IP already allocated", "ip", machine.Status.AllocatedIPAddress)
+	machineID := machine.Namespace + "/" + machine.Name
 
-		return nil
+	// Rebuild the allocation list from the status (idempotent across reconciles).
+	existing := make(map[string]infrav1.NICIPAllocation, len(machine.Status.AllocatedIPAddresses))
+	for _, a := range machine.Status.AllocatedIPAddresses {
+		existing[a.Network] = a
 	}
 
-	vmNetCfg := effectiveVMNetworkConfig(hvScope)
-	if vmNetCfg == nil {
-		return errors.New("VMNetworkConfig is nil on both the HarvesterMachine and the HarvesterCluster")
+	// Backward compatibility: the legacy single-allocation status fields describe
+	// the first NIC.
+	if len(existing) == 0 && machine.Status.AllocatedIPAddress != "" {
+		network := ""
+		if len(machine.Spec.Networks) > 0 {
+			network = machine.Spec.Networks[0]
+		}
+
+		existing[network] = infrav1.NICIPAllocation{
+			Network:   network,
+			IPAddress: machine.Status.AllocatedIPAddress,
+			PoolRef:   machine.Status.AllocatedPoolRef,
+		}
 	}
 
-	poolRefs := vmNetCfg.GetIPPoolRefs()
-	if len(poolRefs) == 0 {
+	nicCfgs := effectiveNICConfigs(hvScope)
+	if len(nicCfgs) == 0 {
+		// No networks declared (the webhook rejects this in practice): keep a
+		// legacy allocation if there is one, otherwise there is nothing to do.
+		if len(existing) > 0 {
+			return nil
+		}
+
+		return errors.New("the machine has no networks to allocate IPs for")
+	}
+
+	anyPools := false
+
+	for _, cfg := range nicCfgs {
+		if len(cfg.PoolRefs) > 0 {
+			anyPools = true
+
+			break
+		}
+	}
+
+	if !anyPools {
+		if len(existing) > 0 {
+			// Idempotent: an allocation is already recorded in the status.
+			allocs := make([]infrav1.NICIPAllocation, 0, len(existing))
+			for _, cfg := range nicCfgs {
+				if a, ok := existing[cfg.Network]; ok {
+					allocs = append(allocs, a)
+				}
+			}
+
+			machine.Status.AllocatedIPAddresses = allocs
+
+			return nil
+		}
+
+		if effectiveVMNetworkConfig(hvScope) == nil && len(machine.Spec.NetworkConfigs) == 0 {
+			return errors.New("VMNetworkConfig is nil on both the HarvesterMachine and the HarvesterCluster")
+		}
+
 		return errors.New("no IPPool references configured, ensure reconcileVMIPPool has run")
 	}
 
-	machineID := machine.Namespace + "/" + machine.Name
+	allocs := make([]infrav1.NICIPAllocation, 0, len(nicCfgs))
+	var lastErr error
 
-	// Try each pool in order until allocation succeeds. Pools assigned to a
-	// network the machine is not attached to are skipped, so that clusters can
-	// dedicate distinct pools to control-plane and worker networks by listing
-	// them all in ipPoolRefs.
+	for i, cfg := range nicCfgs {
+		if len(cfg.PoolRefs) == 0 {
+			continue // this NIC stays on DHCP
+		}
+
+		network := machine.Spec.Networks[i]
+
+		if a, ok := existing[network]; ok && a.IPAddress != "" {
+			logger.V(3).Info("VM IP already allocated for NIC", "ip", a.IPAddress, "network", network)
+			allocs = append(allocs, a)
+
+			continue
+		}
+
+		ip, poolRef, err := r.allocateFromPools(hvScope, cfg.PoolRefs, machineID, network)
+		if err != nil {
+			lastErr = errors.Wrapf(err, "failed to allocate an IP for network %s", network)
+
+			continue
+		}
+
+		allocs = append(allocs, infrav1.NICIPAllocation{Network: network, IPAddress: ip, PoolRef: poolRef})
+		logger.Info("Allocated VM IP from pool", "ip", ip, "pool", poolRef, "network", network, "machine", machine.Name)
+	}
+
+	// Record the allocations even on partial failure, so that successful NICs are
+	// not allocated twice on the next reconcile.
+	machine.Status.AllocatedIPAddresses = allocs
+
+	if len(allocs) > 0 {
+		machine.Status.AllocatedIPAddress = allocs[0].IPAddress
+		machine.Status.AllocatedPoolRef = allocs[0].PoolRef
+	} else {
+		machine.Status.AllocatedIPAddress = ""
+		machine.Status.AllocatedPoolRef = ""
+	}
+
+	if lastErr != nil {
+		caphvmetrics.IPPoolAllocationErrorsTotal.Inc()
+
+		return lastErr
+	}
+
+	return nil
+}
+
+// allocateFromPools tries to allocate an IP for machineID from the given pools, in
+// order, for the NIC attached to the given network. Pools assigned to another
+// network (IPPool spec.selector.network) are skipped, so that each NIC only draws
+// from pools dedicated to its network. An IP already recorded in a pool under
+// machineID is returned as-is.
+//
+//nolint:funcorder
+func (r *HarvesterMachineReconciler) allocateFromPools(hvScope *Scope, poolRefs []string, machineID, network string) (string, string, error) {
+	logger := hvScope.Logger
+
 	var lastErr error
 
 	skippedNetwork := 0
@@ -1456,18 +1753,16 @@ func (r *HarvesterMachineReconciler) allocateVMIP(hvScope *Scope) error {
 		if pool.Status.Allocated != nil {
 			for ip, id := range pool.Status.Allocated {
 				if id == machineID {
-					machine.Status.AllocatedIPAddress = ip
-					machine.Status.AllocatedPoolRef = poolRef
 					logger.Info("Found existing IP allocation in pool", "ip", ip, "pool", poolRef)
 
-					return nil
+					return ip, poolRef, nil
 				}
 			}
 		}
 
-		if !locutil.PoolMatchesNetworks(pool, machine.Spec.Networks) {
+		if !locutil.PoolMatchesNetworks(pool, []string{network}) {
 			logger.V(1).Info("Pool assigned to another network, trying next",
-				"pool", poolRef, "poolNetwork", pool.Spec.Selector.Network, "machineNetworks", machine.Spec.Networks)
+				"pool", poolRef, "poolNetwork", pool.Spec.Selector.Network, "nicNetwork", network)
 
 			skippedNetwork++
 
@@ -1491,60 +1786,88 @@ func (r *HarvesterMachineReconciler) allocateVMIP(hvScope *Scope) error {
 		if err != nil {
 			caphvmetrics.IPPoolAllocationErrorsTotal.Inc()
 
-			return errors.Wrapf(err, "failed to update VM IP pool %s after allocation", poolRef)
+			return "", "", errors.Wrapf(err, "failed to update VM IP pool %s after allocation", poolRef)
 		}
 
-		machine.Status.AllocatedIPAddress = allocatedIP
-		machine.Status.AllocatedPoolRef = poolRef
-		logger.Info("Allocated VM IP from pool", "ip", allocatedIP, "pool", poolRef, "machine", machine.Name)
-
-		return nil
+		return allocatedIP, poolRef, nil
 	}
 
 	// All pools exhausted
 	caphvmetrics.IPPoolAllocationErrorsTotal.Inc()
 
 	if lastErr == nil && skippedNetwork > 0 {
-		return errors.Errorf(
-			"no IP pool among %v matches the machine networks %v (pools are assigned to other networks)",
-			poolRefs, machine.Spec.Networks)
+		return "", "", errors.Errorf(
+			"no IP pool among %v matches the NIC network %s (pools are assigned to other networks)",
+			poolRefs, network)
 	}
 
-	return errors.Wrap(lastErr, "all configured IP pools exhausted")
+	return "", "", errors.Wrap(lastErr, "all configured IP pools exhausted")
 }
 
-// releaseVMIP releases the allocated IP back to the pool during machine deletion.
-// Errors are logged as warnings but do not block deletion.
+// releaseVMIP releases every IP allocated to the machine's NICs back to its pool
+// during machine deletion. Errors are logged as warnings but do not block deletion.
 //
 //nolint:funcorder
 func (r *HarvesterMachineReconciler) releaseVMIP(hvScope *Scope) {
 	machine := hvScope.HarvesterMachine
-	logger := hvScope.Logger
 
-	if machine.Status.AllocatedIPAddress == "" {
-		return
-	}
+	allocs := machine.Status.AllocatedIPAddresses
 
-	// Determine which pool to release from: use AllocatedPoolRef if available,
-	// fall back to first configured pool for backward compatibility.
-	vmNetCfg := effectiveVMNetworkConfig(hvScope)
+	// Backward compatibility: the legacy single-allocation status fields describe
+	// the first NIC.
+	if len(allocs) == 0 && machine.Status.AllocatedIPAddress != "" {
+		poolRef := machine.Status.AllocatedPoolRef
+		if poolRef == "" {
+			// Fall back to the first pool configured on any NIC: the top-level
+			// vmNetworkConfig (first NIC) or a per-NIC interfaces/networkConfigs
+			// entry.
+			for _, cfg := range effectiveNICConfigs(hvScope) {
+				if len(cfg.PoolRefs) > 0 {
+					poolRef = cfg.PoolRefs[0]
 
-	poolRef := machine.Status.AllocatedPoolRef
-	if poolRef == "" && vmNetCfg != nil {
-		poolRefs := vmNetCfg.GetIPPoolRefs()
-		if len(poolRefs) > 0 {
-			poolRef = poolRefs[0]
+					break
+				}
+			}
+		}
+
+		if poolRef != "" {
+			network := ""
+			if len(machine.Spec.Networks) > 0 {
+				network = machine.Spec.Networks[0]
+			}
+
+			allocs = []infrav1.NICIPAllocation{{
+				Network:   network,
+				IPAddress: machine.Status.AllocatedIPAddress,
+				PoolRef:   poolRef,
+			}}
 		}
 	}
 
-	if poolRef == "" {
-		logger.Info("No pool reference for IP release, skipping")
+	if len(allocs) == 0 {
+		return
+	}
+
+	for _, alloc := range allocs {
+		r.releaseAllocation(hvScope, alloc)
+	}
+}
+
+// releaseAllocation releases a single NIC IP allocation back to its pool.
+//
+//nolint:funcorder
+func (r *HarvesterMachineReconciler) releaseAllocation(hvScope *Scope, alloc infrav1.NICIPAllocation) {
+	machine := hvScope.HarvesterMachine
+	logger := hvScope.Logger
+
+	if alloc.PoolRef == "" || alloc.IPAddress == "" {
+		logger.Info("Warning: incomplete IP allocation, skipping release", "allocation", alloc)
 
 		return
 	}
 
 	pool, err := hvScope.HarvesterClient.LoadbalancerV1beta1().IPPools().Get(
-		hvScope.Ctx, poolRef, metav1.GetOptions{})
+		hvScope.Ctx, alloc.PoolRef, metav1.GetOptions{})
 	if err != nil {
 		logger.Info("Warning: failed to get VM IP pool for release, skipping", "error", err)
 
@@ -1552,17 +1875,17 @@ func (r *HarvesterMachineReconciler) releaseVMIP(hvScope *Scope) {
 	}
 
 	store := locutil.NewStore(pool)
-	ip := net.ParseIP(machine.Status.AllocatedIPAddress)
+	ip := net.ParseIP(alloc.IPAddress)
 
 	if ip == nil {
-		logger.Info("Warning: failed to parse allocated IP for release", "ip", machine.Status.AllocatedIPAddress)
+		logger.Info("Warning: failed to parse allocated IP for release", "ip", alloc.IPAddress)
 
 		return
 	}
 
 	releaseErr := store.Release(ip)
 	if releaseErr != nil {
-		logger.Info("Warning: failed to release IP from pool", "error", releaseErr, "ip", machine.Status.AllocatedIPAddress)
+		logger.Info("Warning: failed to release IP from pool", "error", releaseErr, "ip", alloc.IPAddress)
 
 		return
 	}
@@ -1576,7 +1899,7 @@ func (r *HarvesterMachineReconciler) releaseVMIP(hvScope *Scope) {
 	}
 
 	caphvmetrics.IPPoolReleasesTotal.Inc()
-	logger.Info("Released VM IP back to pool", "ip", machine.Status.AllocatedIPAddress, "machine", machine.Name)
+	logger.Info("Released VM IP back to pool", "ip", alloc.IPAddress, "pool", alloc.PoolRef, "machine", machine.Name)
 }
 
 // removeEtcdMemberIfControlPlane removes the etcd member for a control-plane machine

@@ -831,6 +831,56 @@ var _ = Describe("getCloudInitData", func() {
 // Tests for dhclientScriptContent
 // =============================================================================
 
+var _ = Describe("buildNetworkDataStatic default route (multi-NIC)", func() {
+
+	Context("Two static NICs with per-NIC gateways", func() {
+
+		It("Should emit the default route (gateway) only once, on the first NIC", func() {
+
+			scope := &Scope{
+				HarvesterMachine: &infrav1.HarvesterMachine{
+					Spec: infrav1.HarvesterMachineSpec{
+						Networks: []string{"default/oob2", "default/production"},
+					},
+					Status: infrav1.HarvesterMachineStatus{
+						AllocatedIPAddresses: []infrav1.NICIPAllocation{
+							{Network: "default/oob2", IPAddress: "11.0.0.42", PoolRef: "oob2"},
+							{Network: "default/production", IPAddress: "10.0.0.42", PoolRef: "production"},
+						},
+					},
+				},
+				HarvesterCluster: &infrav1.HarvesterCluster{
+					Spec: infrav1.HarvesterClusterSpec{
+						VMNetworkConfig: &infrav1.VMNetworkConfig{
+							Interfaces: []infrav1.NetworkInterfaceConfig{
+								{IPPoolRef: "oob2", Gateway: "11.0.0.1", SubnetMask: "255.255.254.0"},
+								{IPPoolRef: "production", Gateway: "10.0.0.1", SubnetMask: "255.255.254.0"},
+							},
+						},
+					},
+				},
+			}
+			result := buildNetworkDataStatic(scope)
+			Expect(result).To(ContainSubstring("address: 11.0.0.42"))
+			Expect(result).To(ContainSubstring("address: 10.0.0.42"))
+			Expect(result).To(ContainSubstring("netmask: 255.255.254.0"))
+			Expect(strings.Count(result, "gateway:")).To(Equal(1), "exactly one default route must be emitted")
+			Expect(result).To(ContainSubstring("gateway: 11.0.0.1"))
+			Expect(result).ToNot(ContainSubstring("gateway: 10.0.0.1"))
+		})
+	})
+})
+
+var _ = Describe("dhclientScriptContent default route", func() {
+
+	It("should install exactly one default route even with several routers or NICs", func() {
+
+		content := dhclientScriptContent()
+		Expect(content).To(ContainSubstring("for router in $new_routers; do"))
+		Expect(content).To(ContainSubstring(`ip route add default via "$router" dev "$interface"`))
+	})
+})
+
 var _ = Describe("dhclientScriptContent", func() {
 	It("should return a valid bash script", func() {
 		content := dhclientScriptContent()
@@ -2894,6 +2944,7 @@ var _ = Describe("ReconcileNormal", func() {
 					Finalizers: []string{infrav1.MachineFinalizer},
 				},
 				Spec: infrav1.HarvesterMachineSpec{
+					Networks:      []string{"default/production"},
 					NetworkConfig: nil, // no machine-level config
 				},
 			},
@@ -3174,6 +3225,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3199,6 +3251,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 				Status: infrav1.HarvesterMachineStatus{
 					AllocatedIPAddress: "172.16.3.40",
 				},
@@ -3221,6 +3274,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{},
 			HarvesterClient:  hvClient,
@@ -3240,6 +3294,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3276,6 +3331,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3324,6 +3380,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-1", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3376,6 +3433,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-new", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{
@@ -3410,6 +3468,7 @@ var _ = Describe("allocateVMIP", func() {
 		scope := &Scope{
 			HarvesterMachine: &infrav1.HarvesterMachine{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-cp-0", Namespace: "test-ns"},
+				Spec:       infrav1.HarvesterMachineSpec{Networks: []string{"default/production"}},
 			},
 			HarvesterCluster: &infrav1.HarvesterCluster{
 				Spec: infrav1.HarvesterClusterSpec{

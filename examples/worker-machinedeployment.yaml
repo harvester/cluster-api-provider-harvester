@@ -31,6 +31,17 @@ spec:
       sshKeyPair: default/my-ssh-key
       networks:
         - default/my-vm-network
+        # - default/my-storage-network   # optional second NIC
+      # Optional: one IPPool per NIC. Entry i of networkConfigs configures the NIC
+      # attached to networks[i]; each NIC gets its own gateway and subnet mask.
+      # NICs without an entry stay on DHCP. Mutually exclusive with networkConfig.
+      # networkConfigs:
+      #   - ipPoolRef: default/pool-production
+      #     gateway: "172.16.0.1"
+      #     subnetMask: "255.255.0.0"
+      #   - ipPoolRef: default/pool-storage
+      #     gateway: "172.17.0.1"
+      #     subnetMask: "255.255.255.0"
       volumes:
         - volumeType: image
           imageName: default/my-os-image.qcow2
