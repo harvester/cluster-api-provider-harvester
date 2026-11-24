@@ -33,16 +33,16 @@ import (
 )
 
 // namespace where the project is deployed in.
-const namespace = "cluster-api-provider-harvester-system"
+const namespace = "caphv-system"
 
 // serviceAccountName created for the project.
-const serviceAccountName = "cluster-api-provider-harvester-controller-manager"
+const serviceAccountName = "controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project.
-const metricsServiceName = "cluster-api-provider-harvester-controller-manager-metrics-service"
+const metricsServiceName = "controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data.
-const metricsRoleBindingName = "cluster-api-provider-harvester-metrics-binding"
+const metricsRoleBindingName = "caphv-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -194,7 +194,7 @@ var _ = Describe("Manager", Ordered, func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName, //nolint:gosec
-				"--clusterrole=cluster-api-provider-harvester-metrics-reader",
+				"--clusterrole=metrics-reader",
 				"--serviceaccount="+namespace+":"+serviceAccountName,
 			)
 			_, err := utils.Run(cmd)
@@ -286,14 +286,207 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
-		// NOTE: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput := getMetricsOutput()
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+		Context("validating webhook: multi-NIC vmNetworkConfig", func() {
+
+			applyManifest := func(manifest string) (string, error) {
+				f, err := os.CreateTemp("", "caphv-e2e-*.yaml")
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = os.Remove(f.Name()) }()
+
+				_, err = f.WriteString(manifest)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(f.Close()).To(Succeed())
+
+				cmd := exec.Command("kubectl", "apply", "-f", f.Name()) //nolint:gosec
+				return utils.Run(cmd)
+			}
+
+			deleteResource := func(kind, name string) {
+				cmd := exec.Command("kubectl", "delete", kind, name, "-n", "default", "--ignore-not-found") //nolint:gosec
+				_, _ = utils.Run(cmd)
+			}
+
+			It("accepts vmNetworkConfig.interfaces without top-level gateway/subnetMask/ipPoolRef", func() {
+				out, err := applyManifest(`apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-multinic
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: hv-identity-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    interfaces:
+      - ipPoolRef: oob2
+        gateway: 10.10.0.1
+        subnetMask: 255.255.254.0
+      - ipPoolRef: production
+        gateway: 10.11.0.1
+        subnetMask: 255.255.254.0
+    dnsServers:
+      - 1.1.1.1
+    dnsSearch:
+      - example.com
+`)
+				Expect(err).NotTo(HaveOccurred(), "interfaces-only vmNetworkConfig should be accepted: %s", out)
+				Expect(out).To(ContainSubstring("created"))
+				deleteResource("harvestercluster", "e2e-multinic")
+			})
+
+			It("accepts single-NIC vmNetworkConfig with top-level pool, gateway and subnetMask", func() {
+				out, err := applyManifest(`apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-singlenic
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: hv-identity-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    ipPoolRef: pool-a
+    gateway: 10.10.0.1
+    subnetMask: 255.255.255.0
+`)
+				Expect(err).NotTo(HaveOccurred(), "single-NIC vmNetworkConfig should be accepted: %s", out)
+				Expect(out).To(ContainSubstring("created"))
+				deleteResource("harvestercluster", "e2e-singlenic")
+			})
+
+			It("rejects vmNetworkConfig without gateway when interfaces is not set", func() {
+				out, err := applyManifest(`apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-no-gateway
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: hv-identity-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    ipPoolRef: pool-a
+    subnetMask: 255.255.255.0
+`)
+				Expect(err).To(HaveOccurred(), "missing gateway should be rejected")
+				Expect(out).To(ContainSubstring("spec.vmNetworkConfig.gateway is required"))
+			})
+
+			It("rejects an interfaces entry with an invalid gateway IP", func() {
+				out, err := applyManifest(`apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-bad-iface-gateway
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: hv-identity-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    interfaces:
+      - ipPoolRef: pool-a
+        gateway: not-an-ip
+        subnetMask: 255.255.255.0
+`)
+				Expect(err).To(HaveOccurred(), "invalid interfaces gateway should be rejected")
+				Expect(out).To(ContainSubstring("interfaces[0].gateway"))
+				Expect(out).To(ContainSubstring("is not a valid IP address"))
+			})
+
+			It("rejects an interfaces entry without ipPoolRef/ipPoolRefs", func() {
+				out, err := applyManifest(`apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterCluster
+metadata:
+  name: e2e-iface-no-pool
+  namespace: default
+spec:
+  targetNamespace: default
+  identitySecret:
+    name: hv-identity-secret
+    namespace: default
+  loadBalancerConfig:
+    ipamType: dhcp
+  vmNetworkConfig:
+    interfaces:
+      - gateway: 10.10.0.1
+        subnetMask: 255.255.255.0
+`)
+				Expect(err).To(HaveOccurred(), "interfaces entry without pool should be rejected")
+				Expect(out).To(ContainSubstring("interfaces[0] requires one of ipPoolRef or ipPoolRefs"))
+			})
+
+			It("accepts a HarvesterMachine with networkConfigs matching networks", func() {
+				out, err := applyManifest(`apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterMachine
+metadata:
+  name: e2e-multinic-machine
+  namespace: default
+spec:
+  cpu: 2
+  memory: 4Gi
+  sshUser: sles
+  sshKeyPair: test-key
+  volumes:
+    - volumeType: image
+      imageName: default/test-image
+      volumeSize: 20Gi
+  networks:
+    - default/oob
+    - default/production
+  networkConfigs:
+    - ipPoolRef: oob2
+      gateway: 10.10.0.1
+      subnetMask: 255.255.254.0
+    - ipPoolRef: production
+      gateway: 10.11.0.1
+      subnetMask: 255.255.254.0
+`)
+				Expect(err).NotTo(HaveOccurred(), "HarvesterMachine with networkConfigs should be accepted: %s", out)
+				Expect(out).To(ContainSubstring("created"))
+				deleteResource("harvestermachine", "e2e-multinic-machine")
+			})
+
+			It("rejects networkConfigs with more entries than networks", func() {
+				out, err := applyManifest(`apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: HarvesterMachine
+metadata:
+  name: e2e-too-many-nic-cfgs
+  namespace: default
+spec:
+  cpu: 2
+  memory: 4Gi
+  sshUser: sles
+  sshKeyPair: test-key
+  volumes:
+    - volumeType: image
+      imageName: default/test-image
+      volumeSize: 20Gi
+  networks:
+    - default/production
+  networkConfigs:
+    - ipPoolRef: oob2
+      gateway: 10.10.0.1
+      subnetMask: 255.255.254.0
+    - ipPoolRef: production
+      gateway: 10.11.0.1
+      subnetMask: 255.255.254.0
+`)
+				Expect(err).To(HaveOccurred(), "oversized networkConfigs should be rejected")
+				Expect(out).To(ContainSubstring("has 2 entries but the machine has only 1 networks"))
+			})
+		})
 	})
 })
 
